@@ -96,6 +96,7 @@ class QuantizedLayer(nn.Module):
         self.inner = inner
         self.name = name
         self.weight_dynamic = True
+        self.bypass = False          # True 时整层退化成普通浮点算子（重导 FP32 参照物用）
         self.act_in = ActivationQuant(f"{name}.in") if quant_input else None
         self.register_buffer("w_scale", torch.ones(inner.weight.shape[0], dtype=torch.float32))
         self.register_buffer("w_zp", torch.zeros(inner.weight.shape[0], dtype=torch.int32))
@@ -114,6 +115,8 @@ class QuantizedLayer(nn.Module):
 
     def quantized_weight(self) -> torch.Tensor:
         w = self.inner.weight
+        if self.bypass:
+            return w
         if self.weight_dynamic:
             self._update_weight_scale(w.detach())
         return torch.fake_quantize_per_channel_affine(
@@ -144,6 +147,7 @@ def set_mode(model: nn.Module, observer: bool, fake_quant: bool) -> int:
     for m in model.modules():
         if isinstance(m, QuantizedLayer):
             m.weight_dynamic = True
+            m.bypass = not fake_quant
     return n
 
 
@@ -238,6 +242,13 @@ def _fold_static_nodes(model) -> int:
 
     for n in removable:
         graph.node.remove(n)
+
+    # 折掉 Cast/Identity 之后，原来的 Constant 节点就没人用了，一并清掉
+    still_used = {inp for node in graph.node for inp in node.input if inp}
+    for n in [x for x in graph.node
+              if x.op_type == "Constant" and not (set(x.output) & still_used)]:
+        graph.node.remove(n)
+        removable.append(n)
 
     used = {inp for node in graph.node for inp in node.input if inp}
     existing = {i.name for i in graph.initializer}
@@ -470,11 +481,10 @@ def qat_quantize_and_verify(model: nn.Module, fp32_path: Path | str, int8_path: 
     export_info = export_qat_onnx(qmodel, int8_path, input_size=INPUT_SIZE)
 
     if reexport_fp32:
+        # bypass=True 时 QuantizedLayer 退化成普通浮点算子，导出的就是同一份权重的 FP32 图
         set_mode(qmodel, observer=False, fake_quant=False)
-        for m in qmodel.modules():
-            if isinstance(m, QuantizedLayer):
-                m.weight_dynamic = False
         export_module_onnx(qmodel, fp32_path, input_size=INPUT_SIZE)
+        set_mode(qmodel, observer=False, fake_quant=True)
 
     report = quantize.QuantizeReport(
         method="qat_qdq_int8",

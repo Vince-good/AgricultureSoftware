@@ -65,6 +65,7 @@ def cmd_build(args) -> int:
         distill=not args.no_distill, do_prune=not args.no_prune,
         quantize=not args.no_quantize, per_channel=not args.per_tensor,
         calibration_samples=args.calibration_samples,
+        qat=not args.no_qat, qat_epochs=args.qat_epochs, qat_lr=args.qat_lr,
         out_root=args.out, region=args.region, notes=args.notes,
         pack_zip=args.pack_zip, benchmark_rounds=args.benchmark_rounds,
         benchmark_threads=args.benchmark_threads,
@@ -277,6 +278,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-distill", action="store_true")
     p.add_argument("--no-prune", action="store_true")
     p.add_argument("--no-quantize", action="store_true")
+    p.add_argument("--no-qat", action="store_true",
+                   help="退回纯 PTQ 静态量化（掉点会远超 3%%，仅用于没有训练条件时对比）")
+    p.add_argument("--qat-epochs", type=int, default=6, help="量化感知训练轮数")
+    p.add_argument("--qat-lr", type=float, default=3e-5, help="量化感知训练骨干学习率")
     p.add_argument("--per-tensor", action="store_true", help="用逐张量量化代替逐通道（更快但精度略降）")
     p.add_argument("--calibration-samples", type=int, default=128)
     p.add_argument("--out", help="产物根目录（默认 HEYAN_HOME 或 ./artifacts）")
