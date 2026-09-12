@@ -708,6 +708,15 @@ select { appearance: none; padding-right: 40px;
 .cand i { font-style: normal; color: var(--ink2); font-weight: 700; }
 .cand small { grid-column: 1 / -1; color: var(--ink3); font-size: .88em; }
 
+/* 机器可读内容（JSON Schema、完整性校验、对接回执）：给农技员看，不是给农户看 */
+.code {
+  margin: 0; padding: 12px; overflow: auto; max-height: 46dvh;
+  background: var(--canvas); border: 1px solid var(--line2); border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: calc(var(--fs) * .62); line-height: 1.5; color: var(--ink2);
+  white-space: pre; tab-size: 2;
+}
+
 .toast {
   position: fixed; left: 50%; bottom: 108px; z-index: 80;
   transform: translateX(-50%);
