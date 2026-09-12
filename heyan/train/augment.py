@@ -57,27 +57,34 @@ def random_rotate_scale_shift(img: Image.Image, cfg: AugmentConfig, rng: random.
     ty = rng.uniform(-cfg.shift_range, cfg.shift_range) * h
     # 平移用仿射矩阵，避免出现黑角
     matrix = (scale, 0, tx + (w - scale * w) / 2, 0, scale, ty + (h - scale * h) / 2)
-    return img.transform(img.size, Image.AFFINE, matrix, resample=Image.BILINEAR,
-                         fillcolor=(0, 0, 0)) if angle == 0 else _rotate_affine(img, angle, matrix)
+    # 边框用画面均值色填充：黑角会让模型把"黑色三角"当成类别特征
+    arr = np.asarray(img, dtype=np.float32)
+    fill = tuple(int(v) for v in arr.reshape(-1, arr.shape[-1]).mean(axis=0))
+    if angle == 0:
+        return img.transform(img.size, Image.AFFINE, matrix, resample=Image.BILINEAR,
+                             fillcolor=fill)
+    return _rotate_affine(img, angle, matrix, fill)
 
 
-def _rotate_affine(img: Image.Image, angle: float, matrix: Tuple[float, ...]) -> Image.Image:
+def _rotate_affine(img: Image.Image, angle: float, matrix: Tuple[float, ...],
+                   fill: Tuple[int, ...]) -> Image.Image:
     import math
 
     rad = math.radians(angle)
     cos, sin = math.cos(rad), math.sin(rad)
     base = np.array(matrix, dtype=np.float64).reshape(2, 3)
-    rot = np.array([[cos, -sin, 0.0], [sin, cos, 0.0]])
     w, h = img.size
-    center = np.array([w / 2.0, h / 2.0])
-    # 先绕中心旋转，再套用缩放平移
-    m = rot @ np.array([[1, 0, -center[0]], [0, 1, -center[1]], [0, 0, 1]])[:2]
-    m = np.hstack([m, (center - m @ np.array([0.0, 0.0])).reshape(2, 1)])
-    combined = base[:, :2] @ m[:, :2]
-    offset = base[:, :2] @ m[:, 2] + base[:, 2]
-    final = np.hstack([combined, offset.reshape(2, 1)]).flatten()
+    cx, cy = w / 2.0, h / 2.0
+    # PIL 的 AFFINE 矩阵是"输出坐标 -> 输入坐标"的逆映射，因此全程在逆映射空间合成：
+    #   前向 = 先绕中心旋转 angle，再缩放平移  =>  逆映射 = 旋转逆 ∘ 缩放平移逆
+    base3 = np.vstack([base, [0.0, 0.0, 1.0]])
+    rot_inv = np.array([[cos, sin, 0.0], [-sin, cos, 0.0], [0.0, 0.0, 1.0]])
+    to_center = np.array([[1.0, 0.0, -cx], [0.0, 1.0, -cy], [0.0, 0.0, 1.0]])
+    from_center = np.array([[1.0, 0.0, cx], [0.0, 1.0, cy], [0.0, 0.0, 1.0]])
+    rot_about_center = from_center @ rot_inv @ to_center
+    final = (rot_about_center @ base3)[:2].flatten()
     return img.transform(img.size, Image.AFFINE, tuple(float(v) for v in final),
-                         resample=Image.BILINEAR)
+                         resample=Image.BILINEAR, fillcolor=fill)
 
 
 def random_flip(img: Image.Image, cfg: AugmentConfig, rng: random.Random) -> Image.Image:
@@ -108,7 +115,7 @@ def uneven_lighting(arr: Array, rng: random.Random, strength: float = 0.55) -> A
     xx = np.linspace(-1.0, 1.0, w)[None, :]
     angle = rng.uniform(0, 2 * np.pi)
     grad = np.cos(angle) * xx + np.sin(angle) * yy
-    grad = (grad - grad.min()) / (grad.ptp() + 1e-6)
+    grad = (grad - grad.min()) / (float(np.ptp(grad)) + 1e-6)   # numpy>=2 移除了 ndarray.ptp
     gain = (1.0 - strength) + grad * (2.0 * strength)
     out = arr.astype(np.float32) * gain[..., None]
     return np.clip(out, 0, 255).astype(np.uint8)

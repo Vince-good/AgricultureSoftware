@@ -59,10 +59,27 @@ def _rank_for_energy(singular: np.ndarray, energy: float) -> int:
     return max(1, min(r, len(singular)))
 
 
-def _find_pointwise_convs(model: nn.Module, min_channels: int) -> List[Tuple[nn.Module, str, nn.Conv2d]]:
+SE_BLOCK_TYPES = ("SqueezeExcitation", "SEBlock", "SqueezeExcite", "SEModule")
+
+
+def _is_se_block(module: nn.Module) -> bool:
+    """SE 门控本身已是极低秩瓶颈（实测常近 rank 1）。
+
+    再对它做低秩分解省不下几个参数，却很容易毁掉通道注意力，所以整块跳过。"""
+    return type(module).__name__ in SE_BLOCK_TYPES
+
+
+def _qualified_names(model: nn.Module) -> Dict[int, str]:
+    return {id(m): n for n, m in model.named_modules()}
+
+
+def _find_pointwise_convs(model: nn.Module, min_channels: int,
+                          skip_se: bool = True) -> List[Tuple[nn.Module, str, nn.Conv2d]]:
     """定位所有可分解的 1x1 卷积，返回 (父模块, 属性名, 卷积层)。"""
     found: List[Tuple[nn.Module, str, nn.Conv2d]] = []
     for parent in model.modules():
+        if skip_se and _is_se_block(parent):
+            continue
         for name, child in parent.named_children():
             if isinstance(child, nn.Conv2d) and child.kernel_size == (1, 1) \
                     and child.groups == 1 and child.dilation == (1, 1):
@@ -71,60 +88,117 @@ def _find_pointwise_convs(model: nn.Module, min_channels: int) -> List[Tuple[nn.
     return found
 
 
-def low_rank_compress(model: nn.Module, energy: float = 0.95, min_channels: int = 128,
-                      min_gain: float = 0.15, verbose: bool = True) -> CompressionReport:
-    """就地替换符合条件的 1x1 卷积为两级低秩卷积。"""
+def _find_linears(model: nn.Module, min_features: int,
+                  skip_se: bool = True) -> List[Tuple[nn.Module, str, nn.Linear]]:
+    """定位可分解的全连接层。
+
+    MobileNetV3-Small 的参数大头其实在 classifier 的第一层 Linear（576->1024，
+    约占全模型 38%）。只盯着 1x1 卷积会完全错过它，剪枝也就形同虚设。"""
+    found: List[Tuple[nn.Module, str, nn.Linear]] = []
+    if min_features <= 0:
+        return found
+    for parent in model.modules():
+        if skip_se and _is_se_block(parent):
+            continue
+        for name, child in parent.named_children():
+            if isinstance(child, nn.Linear) \
+                    and min(child.in_features, child.out_features) >= min_features:
+                found.append((parent, name, child))
+    return found
+
+
+def _split_pair_conv(conv: nn.Conv2d, rank: int,
+                     v_r: np.ndarray, u_r: np.ndarray) -> nn.Sequential:
+    a = nn.Conv2d(conv.in_channels, rank, kernel_size=1, stride=1,
+                  padding=0, dilation=1, groups=1, bias=False)
+    b = nn.Conv2d(rank, conv.out_channels, kernel_size=1, stride=conv.stride[0],
+                  padding=conv.padding[0], dilation=1, groups=1,
+                  bias=conv.bias is not None)
+    with torch.no_grad():
+        a.weight.copy_(torch.from_numpy(v_r.reshape(rank, conv.in_channels, 1, 1)))
+        b.weight.copy_(torch.from_numpy(u_r.reshape(conv.out_channels, rank, 1, 1)))
+        if conv.bias is not None:
+            b.bias.copy_(conv.bias.detach())
+    return nn.Sequential(a, b)
+
+
+def _split_pair_linear(fc: nn.Linear, rank: int,
+                       v_r: np.ndarray, u_r: np.ndarray) -> nn.Sequential:
+    a = nn.Linear(fc.in_features, rank, bias=False)
+    b = nn.Linear(rank, fc.out_features, bias=fc.bias is not None)
+    with torch.no_grad():
+        a.weight.copy_(torch.from_numpy(v_r.reshape(rank, fc.in_features)))
+        b.weight.copy_(torch.from_numpy(u_r.reshape(fc.out_features, rank)))
+        if fc.bias is not None:
+            b.bias.copy_(fc.bias.detach())
+    return nn.Sequential(a, b)
+
+
+def low_rank_compress(model: nn.Module, energy: float = 0.85, min_channels: int = 24,
+                      min_gain: float = 0.15, verbose: bool = True,
+                      min_linear: int = 256, skip_se: bool = True) -> CompressionReport:
+    """就地把符合条件的 1x1 卷积 / 全连接层换成两级低秩结构。
+
+    energy 是保留的奇异值能量占比：调得越低秩越小、省得越多、精度风险越大。
+    MobileNetV3-Small 权重接近满秩，energy=0.95 基本压不动（实测 -0.0%），
+    0.85 才有约 13% 的真实收益，因此默认取 0.85，并由恢复训练 + 回退兜底精度。"""
     report = CompressionReport(params_before=count(model), size_mb_before=_mb(count(model)),
                                energy=energy)
-    targets = _find_pointwise_convs(model, min_channels)
-    if verbose:
-        print(f"[prune] 候选 1x1 卷积 {len(targets)} 个（min_channels={min_channels}）")
+    qnames = _qualified_names(model)
 
-    for parent, name, conv in targets:
-        w = conv.weight.detach().cpu().numpy().reshape(conv.out_channels, conv.in_channels)
+    conv_targets = _find_pointwise_convs(model, min_channels, skip_se=skip_se)
+    lin_targets = _find_linears(model, min_linear, skip_se=skip_se)
+    if verbose:
+        print(f"[prune] 候选 1x1 卷积 {len(conv_targets)} 个（min_channels={min_channels}）, "
+              f"全连接 {len(lin_targets)} 个（min_features={min_linear}）, energy={energy}")
+
+    jobs: List[Tuple[str, nn.Module, str, nn.Module, int, int, np.ndarray]] = []
+    for parent, name, conv in conv_targets:
+        jobs.append((qnames.get(id(conv), name), parent, name, conv,
+                     conv.out_channels, conv.in_channels,
+                     conv.weight.detach().cpu().numpy().reshape(conv.out_channels,
+                                                                conv.in_channels)))
+    for parent, name, fc in lin_targets:
+        jobs.append((qnames.get(id(fc), name), parent, name, fc,
+                     fc.out_features, fc.in_features,
+                     fc.weight.detach().cpu().numpy()))
+
+    for qname, parent, name, layer, out_dim, in_dim, w in jobs:
         try:
             u, s, vt = np.linalg.svd(w, full_matrices=False)
         except np.linalg.LinAlgError:  # pragma: no cover
             continue
         rank = _rank_for_energy(s, energy)
-        before = conv.in_channels * conv.out_channels
-        after = conv.in_channels * rank + rank * conv.out_channels
+        before = in_dim * out_dim
+        after = in_dim * rank + rank * out_dim
         gain = (before - after) / max(before, 1)
-        if gain < min_gain or rank >= min(conv.in_channels, conv.out_channels):
-            report.layers.append({"name": name, "shape": [conv.out_channels, conv.in_channels],
+        if gain < min_gain or rank >= min(in_dim, out_dim):
+            report.layers.append({"name": qname, "shape": [out_dim, in_dim],
                                   "rank": rank, "gain": round(gain, 4), "applied": False,
                                   "reason": "gain_below_threshold"})
             continue
 
         u_r = (u[:, :rank] * s[:rank]).astype(np.float32)
         v_r = vt[:rank, :].astype(np.float32)
+        pair = (_split_pair_conv(layer, rank, v_r, u_r) if isinstance(layer, nn.Conv2d)
+                else _split_pair_linear(layer, rank, v_r, u_r))
+        for p in pair.parameters():
+            p.requires_grad = layer.weight.requires_grad
 
-        conv_a = nn.Conv2d(conv.in_channels, rank, kernel_size=1, stride=1,
-                           padding=0, dilation=1, groups=1, bias=False)
-        conv_b = nn.Conv2d(rank, conv.out_channels, kernel_size=1, stride=conv.stride[0],
-                           padding=conv.padding[0], dilation=1, groups=1,
-                           bias=conv.bias is not None)
-        with torch.no_grad():
-            conv_a.weight.copy_(torch.from_numpy(v_r.reshape(rank, conv.in_channels, 1, 1)))
-            conv_b.weight.copy_(torch.from_numpy(u_r.reshape(conv.out_channels, rank, 1, 1)))
-            if conv.bias is not None:
-                conv_b.bias.copy_(conv.bias.detach())
-        conv_a.weight.requires_grad = conv.weight.requires_grad
-        conv_b.weight.requires_grad = conv.weight.requires_grad
-        if conv_b.bias is not None:
-            conv_b.bias.requires_grad = conv.weight.requires_grad
-
-        setattr(parent, name, nn.Sequential(conv_a, conv_b))
+        setattr(parent, name, pair)
         report.layers_compressed += 1
-        report.layers.append({"name": name, "shape": [conv.out_channels, conv.in_channels],
+        report.layers.append({"name": qname, "shape": [out_dim, in_dim],
                               "rank": rank, "gain": round(gain, 4), "applied": True})
         if verbose:
-            print(f"[prune]   {name}: {conv.out_channels}x{conv.in_channels} -> rank {rank} "
+            print(f"[prune]   {qname}: {out_dim}x{in_dim} -> rank {rank} "
                   f"(params {before:,} -> {after:,}, -{gain:.1%})")
 
     report.params_after = count(model)
     report.size_mb_after = _mb(report.params_after)
     if verbose:
+        if report.layers_compressed == 0:
+            print(f"[prune] 没有层满足条件（min_gain={min_gain}）：该架构权重接近满秩，"
+                  f"低秩分解无收益，跳过压缩")
         print(f"[prune] 压缩 {report.layers_compressed} 层，参数 "
               f"{report.params_before:,} -> {report.params_after:,} "
               f"(-{report.reduction:.1%}), FP32 {report.size_mb_before}MB -> {report.size_mb_after}MB")

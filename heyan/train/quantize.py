@@ -9,8 +9,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import shutil
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -20,6 +24,86 @@ import numpy as np
 from ..config import (LATENCY_MAX_S, MODEL_SIZE_MAX_MB, QUANT_CALIBRATION_SAMPLES,
                       RUNTIME_MEMORY_MAX_MB)
 from ..eval.metrics import summarize
+
+
+# --------------------------------------------------------------------------
+# 受限文件系统兼容
+# --------------------------------------------------------------------------
+
+def _mkdtemp_usable() -> bool:
+    """探测 tempfile 创建的目录是否真的可读写。
+
+    某些受限环境（沙箱、被组策略锁掉 %TEMP% 的 kiosks、精简容器）下，
+    mkdtemp 建出的 0700 目录连创建者自己都访问不了（WinError 5 / EPERM）。
+    onnxruntime 的量化与形状推断内部依赖 TemporaryDirectory，在这类环境里必然失败。
+    """
+    import tempfile
+
+    probe: Optional[Path] = None
+    try:
+        probe = Path(tempfile.mkdtemp(prefix="heyan.tmpprobe."))
+        (probe / "probe.bin").write_bytes(b"x")
+        os.listdir(probe)
+        return True
+    except Exception:
+        return False
+    finally:
+        if probe is not None:
+            shutil.rmtree(probe, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def restricted_fs_tempdir():
+    """在 tempfile 不可用的环境里，临时换成"普通 mkdir + 退出清理"的实现。
+
+    正常文件系统上原样放行，不做任何替换；只有探测失败时才接管
+    `TemporaryDirectory` / `mkdtemp`，让量化能在调用方指定的工作目录里完成。
+    """
+    import tempfile
+
+    if _mkdtemp_usable():
+        yield
+        return
+
+    created: List[Path] = []
+    orig_td = tempfile.TemporaryDirectory
+    orig_mkdtemp = tempfile.mkdtemp
+
+    def _make_dir(suffix: Optional[str], prefix: Optional[str],
+                  dir: Optional[str]) -> Path:
+        base = Path(dir) if dir else Path(tempfile.gettempdir())
+        base.mkdir(parents=True, exist_ok=True)
+        d = base / f"{prefix or 'tmp'}{uuid.uuid4().hex}{suffix or ''}"
+        d.mkdir(parents=True, exist_ok=True)
+        created.append(d)
+        return d
+
+    def mkdtemp(suffix=None, prefix=None, dir=None, *args, **kwargs):  # noqa: A002
+        return str(_make_dir(suffix, prefix, dir))
+
+    class _TempDirectory:
+        def __init__(self, suffix=None, prefix=None, dir=None,  # noqa: A002
+                     ignore_cleanup_errors=False, **kwargs):
+            self.name = str(_make_dir(suffix, prefix, dir))
+
+        def __enter__(self) -> str:
+            return self.name
+
+        def __exit__(self, *exc) -> None:
+            self.cleanup()
+
+        def cleanup(self) -> None:
+            shutil.rmtree(self.name, ignore_errors=True)
+
+    tempfile.TemporaryDirectory = _TempDirectory  # type: ignore[attr-defined]
+    tempfile.mkdtemp = mkdtemp  # type: ignore[attr-defined]
+    try:
+        yield
+    finally:
+        tempfile.TemporaryDirectory = orig_td  # type: ignore[attr-defined]
+        tempfile.mkdtemp = orig_mkdtemp  # type: ignore[attr-defined]
+        for d in created:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 @dataclass
@@ -80,7 +164,8 @@ def _preprocess_model(src: Path, dst: Path) -> Path:
     try:
         from onnxruntime.quantization.shape_inference import quant_pre_process
 
-        quant_pre_process(str(src), str(dst), auto_merge=True, verbose=False)
+        with restricted_fs_tempdir():
+            quant_pre_process(str(src), str(dst), auto_merge=True, verbose=False)
         return dst
     except Exception as exc:  # pragma: no cover
         print(f"[quantize] 预处理失败，直接用原图量化: {exc}")
@@ -110,15 +195,16 @@ def quantize_int8(fp32_onnx: Path | str, out_onnx: Path | str,
     for method, extra in attempts:
         try:
             reader.rewind()
-            quantize_static(
-                str(prepared), str(out_onnx), reader,
-                weight_type=QuantType.QUInt8,
-                activation_type=QuantType.QUInt8,
-                calibrate_method=CalibrationMethod.MinMax,
-                extra_options={"ActivationSymmetric": False, "WeightSymmetric": False,
-                               "EnableQdmPasses": True},
-                **extra,
-            )
+            with restricted_fs_tempdir():
+                quantize_static(
+                    str(prepared), str(out_onnx), reader,
+                    weight_type=QuantType.QUInt8,
+                    activation_type=QuantType.QUInt8,
+                    calibrate_method=CalibrationMethod.MinMax,
+                    extra_options={"ActivationSymmetric": False, "WeightSymmetric": False,
+                                   "EnableQdmPasses": True},
+                    **extra,
+                )
             print(f"[quantize] 成功（{method}），{len(calib_arrays)} 张校准图 -> "
                   f"{out_onnx.name} ({out_onnx.stat().st_size/1024/1024:.2f} MB)")
             return {"method": method, "path": str(out_onnx),
@@ -132,7 +218,8 @@ def quantize_int8(fp32_onnx: Path | str, out_onnx: Path | str,
     try:
         from onnxruntime.quantization import QuantType as QT, quantize_dynamic
 
-        quantize_dynamic(str(prepared), str(out_onnx), weight_type=QT.QUInt8)
+        with restricted_fs_tempdir():
+            quantize_dynamic(str(prepared), str(out_onnx), weight_type=QT.QUInt8)
         print("[quantize] 退回动态量化")
         return {"method": "dynamic", "path": str(out_onnx),
                 "size_mb": round(out_onnx.stat().st_size / (1024 * 1024), 3),

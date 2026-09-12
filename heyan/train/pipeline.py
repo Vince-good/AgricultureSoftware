@@ -74,9 +74,12 @@ class PipelineConfig:
     temperature: float = 4.0
     alpha: float = 0.5
     do_prune: bool = True
-    prune_energy: float = 0.95
-    prune_min_channels: int = 96
+    # MobileNetV3-Small 权重接近满秩：energy=0.95 实测压不动（-0.0%），
+    # 0.85 才有约 13% 的真实收益，精度由恢复训练 + 超阈值自动回退兜底。
+    prune_energy: float = 0.85
+    prune_min_channels: int = 24
     prune_min_gain: float = 0.15
+    prune_min_linear: int = 256
     quantize: bool = True
     per_channel: bool = True
     calibration_samples: int = QUANT_CALIBRATION_SAMPLES
@@ -221,7 +224,8 @@ def stage_prune(cfg: PipelineConfig, model, train_ds, val_ds, class_ids: List[st
     params_before, _ = count_params(model)
     comp = prune.low_rank_compress(model, energy=cfg.prune_energy,
                                    min_channels=cfg.prune_min_channels,
-                                   min_gain=cfg.prune_min_gain)
+                                   min_gain=cfg.prune_min_gain,
+                                   min_linear=cfg.prune_min_linear)
     params_after, _ = count_params(model)
     report["compression"] = comp.to_dict()
     report["params_before"] = int(params_before)
