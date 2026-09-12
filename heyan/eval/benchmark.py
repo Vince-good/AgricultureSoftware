@@ -254,7 +254,8 @@ def check_budgets(*, model_size_mb: float, latency_p95_ms: float, runtime_memory
     lim.update(limits or {})
     checks = [
         BudgetCheck("model_size", round(float(model_size_mb), 3), lim["model_mb"], "MB",
-                    model_size_mb <= lim["model_mb"], "INT8 量化后模型文件体积"),
+                    model_size_mb <= lim["model_mb"],
+                    "设备上实际部署的模型文件体积（INT8 优先，不含仅作对照的 FP32）"),
         BudgetCheck("latency_p95", round(float(latency_p95_ms) / 1000.0, 3), lim["latency_s"],
                     "s", latency_p95_ms <= lim["latency_s"] * 1000.0,
                     "端到端（预处理+推理+严重程度+文案）p95"),
@@ -312,7 +313,9 @@ def benchmark_bundle(bundle_root: Path | str, images: Optional[Sequence[Any]] = 
         "version": bundle.manifest.version,
         "device": device_profile(),
         "model_size": {
-            "total_mb": model_size,
+            "deployed_mb": model_size,
+            "deployed_kind": bundle.deployable_kind(),
+            "all_models_mb": bundle.all_models_mb(),
             "bundle_mb": bundle.size_mb(),
             "per_kind_mb": {k: round((bundle.root / n).stat().st_size / (1024 * 1024), 3)
                             for k, n in bundle.manifest.files.items()

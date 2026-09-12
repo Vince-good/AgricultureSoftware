@@ -229,17 +229,36 @@ class ModelBundle:
         total = sum(f.stat().st_size for f in self.root.rglob("*") if f.is_file())
         return round(total / (1024 * 1024), 3)
 
-    def model_size_mb(self) -> float:
-        """只算模型文件，用于 20MB 预算判定。"""
+    def all_models_mb(self) -> float:
+        """包里全部模型文件之和（含只用于对比、不会上设备的 FP32）。"""
         return round(sum(
             (self.root / n).stat().st_size for n in self.manifest.files.values()
             if (self.root / n).exists()
         ) / (1024 * 1024), 3)
 
+    def deployable_kind(self) -> Optional[str]:
+        """设备上真正要装的那一个模型，按后端优先级挑。
+
+        20MB 预算针对的是农户手机里实际躺着的那个文件，不是仓库里所有产物的总和：
+        FP32 只是训练对照，便携 npz 只是没有 onnxruntime 时的退路，一台设备只会用其中一个。
+        """
+        for kind in ("int8", "portable", "fp32"):
+            if self.model_path(kind):
+                return kind
+        return None
+
+    def model_size_mb(self) -> float:
+        """部署体积：设备上实际要装的那一个模型文件的大小，用于 20MB 预算判定。"""
+        kind = self.deployable_kind()
+        return self.size_mb(kind) if kind else 0.0
+
     def check_size_budget(self) -> Dict[str, Any]:
-        size = self.model_size_mb()
+        kind = self.deployable_kind()
+        size = self.size_mb(kind) if kind else 0.0
         limit = float(self.manifest.budgets.get("max_model_mb", MODEL_SIZE_MAX_MB))
-        return {"model_size_mb": size, "limit_mb": limit, "ok": size <= limit,
+        return {"model_size_mb": size, "deployed_kind": kind or "",
+                "all_models_mb": self.all_models_mb(),
+                "limit_mb": limit, "ok": size <= limit,
                 "headroom_mb": round(limit - size, 3)}
 
     def pack_zip(self, dest: Optional[Path] = None) -> Path:
