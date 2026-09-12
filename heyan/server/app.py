@@ -132,9 +132,16 @@ def _record_brief(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _safe_export_path(name: str) -> Path:
-    """导出文件下载：必须落在导出目录内，杜绝 ../ 穿越。"""
+    """导出文件下载：必须落在导出目录内，杜绝 ../ 穿越。
+
+    导出件按 `exports/<export_id>/...` 分目录存放，所以这里接受
+    一层或多层相对路径，但解析后必须仍在导出根目录之内。
+    """
     root = PATHS.exports.resolve()
-    target = (root / Path(name).name).resolve()
+    rel = Path(str(name).replace("\\", "/"))
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ApiError("找不到这个导出文件", 404, "not_found")
+    target = (root / rel).resolve()
     if root not in target.parents or not target.is_file():
         raise ApiError("找不到这个导出文件", 404, "not_found")
     return target
@@ -260,9 +267,19 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
             profile = state.profile
             record_id = make_record_id(payload["created_at"], payload["image_id"])
             rel, digest, width, height = state.store.save_image(data, record_id)
-            field = {k: profile[k] for k in ("village", "town", "county", "region", "plot_id")
-                     if profile.get(k)}
-            farmer = {k: profile[k] for k in ("farmer_id", "alias") if profile.get(k)}
+            # 交换格式里村址属于农户档案、地块属于田块（见 data/schema.py），
+            # 写错位置会让记录库的 village/farmer_id 列永远是空的。
+            farmer = {
+                "id": profile.get("farmer_id") or None,
+                "alias": profile.get("alias") or None,
+                "village": profile.get("village") or None,
+                "town": profile.get("town") or None,
+                "county": profile.get("county") or None,
+                "region": profile.get("region") or None,
+            }
+            field = {"plot_id": profile.get("plot_id") or None}
+            farmer = {k: v for k, v in farmer.items() if v}
+            field = {k: v for k, v in field.items() if v}
             record = state.store.add_result(
                 payload, record_id=record_id, image_ref=rel, image_sha256=digest,
                 farmer=farmer or None, field=field or None,
@@ -445,10 +462,16 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
         )
         payload = result.to_dict()
         payload["ok"] = bool(result.ok)
-        # 无论走哪个通道，本机都留了一份；给个下载链接，方便农技站直接取走
+        # 无论走哪个通道，本机都留了一份；给个下载链接，方便农技站直接取走。
+        # 用相对导出根的路径，保住 <export_id> 这一层目录。
         primary = _primary_export_file(result.files, fmt)
-        payload["download_url"] = (f"/api/export/file?name={Path(primary).name}"
-                                   if primary else None)
+        if primary:
+            from urllib.parse import quote
+
+            rel = Path(primary).resolve().relative_to(PATHS.exports.resolve())
+            payload["download_url"] = (f"/api/export/file?name={quote(rel.as_posix())}")
+        else:
+            payload["download_url"] = None
         return jsonify(payload), (200 if result.ok else 500)
 
     @app.get("/api/export/file")
@@ -568,9 +591,42 @@ def run_server(app: Flask, host: str = "127.0.0.1", port: int = 8765,
     """启动服务。默认只监听回环：田间设备上不该对外开端口。"""
     state: AppState = app.extensions.get("heyan")
     engine = state.engine_status()
+    port = _bind_port(app, host, port)
     print(f"[heyan] 界面地址 http://{host}:{port}")
     if engine["available"]:
         print(f"[heyan] 模型包 {engine['bundle_dir']}")
     else:
         print("[heyan] 警告：没有找到模型包，界面会提示先运行 `heyan build`")
     app.run(host=host, port=int(port), debug=bool(debug), threaded=True, use_reloader=False)
+
+
+def _bind_port(app: Flask, host: str, port: int, tries: int = 10) -> int:
+    """端口被占就顺延。
+
+    田间电脑上常驻软件（输入法、网盘、打印机服务）经常悄悄占端口，
+    直接崩掉只会让农技员以为软件坏了；顺延并打印真实地址更诚实。
+    Windows 上被占用可能报 10048，也可能报 10013（权限式拒绝），都算占用。
+    """
+    import errno
+    import socket
+
+    for offset in range(tries):
+        candidate = int(port) + offset
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((host, candidate))
+        except OSError as exc:
+            probe.close()
+            if exc.errno in (errno.EACCES, errno.EADDRINUSE, 10013, 10048) or \
+                    getattr(exc, "winerror", 0) in (10013, 10048):
+                if offset == 0:
+                    print(f"[heyan] 端口 {candidate} 被占用，尝试顺延…")
+                continue
+            raise
+        probe.close()
+        if candidate != int(port):
+            print(f"[heyan] 改用端口 {candidate}")
+        app.config["HEYAN_PORT"] = candidate
+        return candidate
+    raise OSError(f"端口 {port}~{port + tries - 1} 都被占用，请用 --port 指定其它端口")

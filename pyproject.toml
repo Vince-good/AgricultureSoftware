@@ -31,5 +31,6 @@ heyan = ["assets/*.json", "server/static/**/*", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# no:cacheprovider：仓库目录在某些挂载下不允许 pytest 写 .pytest_cache
+addopts = "-q -p no:cacheprovider"
 filterwarnings = ["ignore::DeprecationWarning"]
