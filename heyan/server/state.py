@@ -125,6 +125,22 @@ class AppState:
 
         threading.Thread(target=_run, name="heyan-warm", daemon=True).start()
 
+    def recognize(self, image, language: str = "zh"):
+        """串行化的识别入口。
+
+        加锁不是为了正确性（onnxruntime session 本身线程安全），而是为了内存：
+        Flask threaded 模式下若放十个请求同时进来，每个都要一份
+        1×3×224×224 的中间张量和 ORT 的 arena，200MB 预算就守不住了。
+        低端设备上并发也只会互相抢核，排队反而更快。
+        """
+        engine = self.engine()
+        with self._lock:
+            self._inflight += 1
+            try:
+                return engine.recognize(image, language=language)
+            finally:
+                self._inflight -= 1
+
     def engine_status(self) -> Dict[str, Any]:
         with self._lock:
             loaded = self._engine is not None
