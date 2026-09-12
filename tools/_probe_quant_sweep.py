@@ -15,10 +15,10 @@ BUNDLE = Path("artifacts/bundles/heyan-mnv3s-int8-v1.0.0")
 FP32 = BUNDLE / "model_fp32.onnx"
 WORK = Path("artifacts/_qsweep"); WORK.mkdir(parents=True, exist_ok=True)
 
-tax = load_taxonomy()
-class_ids = tax.ids
-
-samples = ddata.discover_samples(Path("artifacts/data/demo_dataset"), class_ids)
+# 关键：不要传 class_ids 给 discover_samples。
+# 传了会按 taxonomy 顺序编号，而模型是按目录名字母序训练的，标签就全错位了
+# （错位后 top1 会掉到接近随机的 0.125，看着像量化崩了，其实是评测口径错了）。
+samples, class_ids = ddata.discover_samples(Path("artifacts/data/demo_dataset"))
 train_s, val_s = ddata.split_samples(samples, 0.2, 42)
 train_ds = ddata.LeafDataset(train_s, list(class_ids), augment=None, cache=True)
 val_ds = ddata.LeafDataset(val_s, list(class_ids), augment=None, cache=True)
