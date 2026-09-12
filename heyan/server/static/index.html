@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-size="large">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12261A">
+<meta name="description" content="禾眼 HeYan —— 离线作物胁迫视觉识别，拍照、识别、语音播报三步完成。">
+<title>禾眼 HeYan</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ===================== 图标：全部内联，断网可用 ===================== -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-leaf" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+    </symbol>
+    <symbol id="i-leaf-healthy" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+      <path d="m9.2 14.6 1.9 1.9 3.9-4"/>
+    </symbol>
+    <symbol id="i-leaf-spots" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+      <circle cx="13.4" cy="8.2" r="1.15" fill="currentColor" stroke="none"/>
+      <circle cx="16.8" cy="11.6" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="11.6" cy="13.4" r="1.3" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-leaf-yellow" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+      <path d="M12.6 6.4v3.2M15.9 9.1v3.4M17.9 13.2v2.9" stroke-dasharray="1.6 1.4"/>
+    </symbol>
+    <symbol id="i-leaf-wilt" viewBox="0 0 24 24">
+      <g transform="rotate(16 12 12)">
+        <path d="M11 19A6.4 6.4 0 0 1 9.9 6.3C15.1 5.3 16.5 4.8 18.3 2.5c.9 1.8 1.8 3.8 1.8 7.3 0 5-4.4 9.2-9.1 9.2Z"/>
+      </g>
+      <path d="M2 21c0-2.7 1.7-4.9 4.6-5.5C8.7 15 11 13.7 12 12.7"/>
+      <path d="M4.6 8.2c1.3-1 2.9-1.4 4.4-1.1"/>
+    </symbol>
+    <symbol id="i-leaf-mildew" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+      <circle cx="13.2" cy="8.4" r="1.7" opacity=".55"/>
+      <circle cx="16.6" cy="12.4" r="1.5" opacity=".55"/>
+      <circle cx="11.9" cy="13.6" r="1.3" opacity=".55"/>
+    </symbol>
+    <symbol id="i-leaf-purple" viewBox="0 0 24 24">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
+      <path d="M12.4 6.9c1.6.7 2.9 1.9 3.7 3.4M11.3 10.4c1.5.6 2.7 1.7 3.5 3.1M10.4 13.9c1.3.5 2.3 1.4 3 2.6"/>
+    </symbol>
+    <symbol id="i-retake" viewBox="0 0 24 24">
+      <path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/>
+      <path d="M21 3v5h-5"/>
+      <path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/>
+      <path d="M3 21v-5h5"/>
+    </symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24">
+      <path d="M14.5 4h-5L7.8 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.8Z"/>
+      <circle cx="12" cy="13" r="3.6"/>
+    </symbol>
+    <symbol id="i-image" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2"/>
+      <circle cx="8.6" cy="9.6" r="1.6"/>
+      <path d="m21 16-4.5-4.5L7 21"/>
+    </symbol>
+    <symbol id="i-flip" viewBox="0 0 24 24">
+      <path d="M12 3v18"/>
+      <path d="M8 7 4 12l4 5"/>
+      <path d="m16 7 4 5-4 5"/>
+    </symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24">
+      <path d="M11 5 6.5 9H3v6h3.5L11 19Z"/>
+      <path d="M15.2 9.2a4 4 0 0 1 0 5.6"/>
+      <path d="M18 6.4a8 8 0 0 1 0 11.2"/>
+    </symbol>
+    <symbol id="i-volume-off" viewBox="0 0 24 24">
+      <path d="M11 5 6.5 9H3v6h3.5L11 19Z"/>
+      <path d="m16 10 5 5M21 10l-5 5"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24">
+      <path d="M7 4.8v14.4L19.5 12Z" fill="currentColor" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24">
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-save" viewBox="0 0 24 24">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/>
+      <path d="M17 21v-8H7v8M7 3v5h8"/>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24">
+      <path d="M4 7h16M10 4h4M6 7l1 13h10l1-13"/>
+      <path d="M10.5 11v5.5M13.5 11v5.5"/>
+    </symbol>
+    <symbol id="i-history" viewBox="0 0 24 24">
+      <path d="M3.5 9A9 9 0 1 1 3 12"/>
+      <path d="M3 4v5h5"/>
+      <path d="M12 7.5V12l3 1.8"/>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 14.5H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.06-.06A2 2 0 1 1 7.07 4.7l.06.06A1.7 1.7 0 0 0 9 4.6V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1Z"/>
+    </symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24">
+      <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>
+      <path d="M3.5 12h17"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24">
+      <path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>
+      <path d="M12 9v4.5M12 17.2h.01"/>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 11v5M12 7.8h.01"/>
+    </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z"/>
+    </symbol>
+    <symbol id="i-type" viewBox="0 0 24 24">
+      <path d="M4 7V5h16v2M12 5v14M9 19h6"/>
+    </symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24">
+      <path d="M12 15 16 9"/>
+      <path d="M4 19a9 9 0 1 1 16 0"/>
+      <circle cx="12" cy="15.4" r="1.4" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/>
+      <path d="M4 18v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/>
+    </symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="2"/>
+      <path d="M7 12h11l-2.5-2.5M18 12l-2.5 2.5"/>
+      <path d="M13.5 7.5 16 10l-2.5 2.5V7.5Z" fill="currentColor" stroke="none"/>
+      <rect x="14" y="15.5" width="4" height="4" rx="1"/>
+      <rect x="14" y="4.5" width="4" height="4" rx="1"/>
+    </symbol>
+    <symbol id="i-bluetooth" viewBox="0 0 24 24">
+      <path d="m7 7 10 10-5 4V3l5 4L7 17"/>
+    </symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24">
+      <path d="M12 3 5 6v6c0 4.4 3 8.1 7 9 4-.9 7-4.6 7-9V6Z"/>
+      <path d="m9.2 12 2 2 3.6-3.8"/>
+    </symbol>
+    <symbol id="i-database" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="6" rx="8" ry="3"/>
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+    </symbol>
+    <symbol id="i-wifi-off" viewBox="0 0 24 24">
+      <path d="M2 4l20 16"/>
+      <path d="M8.2 15.4a5 5 0 0 1 6 .3M4.6 11.6a10 10 0 0 1 3.6-2.2M19.4 11.6a10 10 0 0 0-7.6-2.9M12 19h.01"/>
+    </symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8Z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.2 2"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24">
+      <path d="M21 8 12 3 3 8v8l9 5 9-5Z"/>
+      <path d="m3 8 9 5 9-5M12 13v8"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24">
+      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17Z"/>
+      <path d="m14.5 6.5 3 3"/>
+    </symbol>
+    <symbol id="i-spinner" viewBox="0 0 24 24">
+      <path d="M12 3a9 9 0 1 0 9 9" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ===================== 顶栏 ===================== -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"><svg><use href="#i-leaf"/></svg></span>
+    <span class="brand-text">
+      <strong data-i18n="app_name">禾眼</strong>
+      <small data-i18n="app_tagline">拍一张，就知道作物怎么了</small>
+    </span>
+  </div>
+  <div class="topbar-tools">
+    <span class="pill pill-ok" id="pill-status" title="离线可用">
+      <svg aria-hidden="true"><use href="#i-wifi-off"/></svg>
+      <span data-i18n="offline_ready">不用联网，随时能用</span>
+    </span>
+    <button type="button" class="icon-btn" id="btn-lang-quick" data-tip-key="language" aria-label="语言">
+      <svg aria-hidden="true"><use href="#i-globe"/></svg><span id="lang-quick-label">中</span>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <main class="main" id="main">
+
+    <!-- ---------- 三步进度 ---------- -->
+    <ol class="steps" id="steps">
+      <li class="step is-on" data-step="capture">
+        <span class="step-n">1</span><span data-i18n="step_capture">第一步 拍照</span>
+      </li>
+      <li class="step" data-step="recognize">
+        <span class="step-n">2</span><span data-i18n="step_recognize">第二步 识别</span>
+      </li>
+      <li class="step" data-step="listen">
+        <span class="step-n">3</span><span data-i18n="step_listen">第三步 听结果</span>
+      </li>
+    </ol>
+
+    <!-- ===================== 视图 1：拍照 ===================== -->
+    <section class="view is-active" id="view-scan" aria-label="拍照识别">
+      <div class="stage" id="stage">
+        <video id="cam" class="cam" autoplay playsinline muted></video>
+        <img id="preview" class="cam" alt="" hidden>
+        <div class="stage-guide" aria-hidden="true">
+          <span class="guide-corner tl"></span><span class="guide-corner tr"></span>
+          <span class="guide-corner bl"></span><span class="guide-corner br"></span>
+          <svg class="guide-leaf"><use href="#i-leaf"/></svg>
+        </div>
+        <div class="stage-fallback" id="stage-fallback" hidden>
+          <svg aria-hidden="true"><use href="#i-camera"/></svg>
+          <p data-i18n="tap_to_shoot">点这里拍照</p>
+        </div>
+        <p class="stage-hint" id="stage-hint" data-i18n="aim_hint">把叶子放在框中间，靠远一点拍清楚</p>
+      </div>
+
+      <div class="shutter-row">
+        <button type="button" class="round-btn" id="btn-album" data-tip-key="choose_from_album">
+          <svg aria-hidden="true"><use href="#i-image"/></svg>
+        </button>
+        <button type="button" class="shutter" id="btn-shutter" data-tip-key="tap_to_shoot">
+          <span class="shutter-ring"></span>
+          <svg aria-hidden="true"><use href="#i-camera"/></svg>
+        </button>
+        <button type="button" class="round-btn" id="btn-flip" data-tip-key="flip_camera">
+          <svg aria-hidden="true"><use href="#i-flip"/></svg>
+        </button>
+      </div>
+
+      <div class="notice" id="scan-notice" hidden></div>
+
+      <input type="file" id="file-capture" accept="image/*" capture="environment" hidden>
+      <input type="file" id="file-album" accept="image/*" hidden>
+
+      <div class="samples" id="samples">
+        <h3 data-i18n="recent_captures">最近拍的</h3>
+        <div class="samples-row" id="samples-row"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 视图 2：结果 ===================== -->
+    <section class="view" id="view-result" aria-label="识别结果" hidden>
+      <div class="verdict" id="verdict">
+        <span class="verdict-icon" id="r-icon"><svg aria-hidden="true"><use href="#i-leaf-healthy"/></svg></span>
+        <div class="verdict-body">
+          <p class="eyebrow" data-i18n="result_name">这是什么</p>
+          <h2 id="r-name">—</h2>
+          <div class="chip-row">
+            <span class="chip chip-sev" id="r-sev">—</span>
+            <span class="chip" id="r-crop">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conf">
+        <div class="conf-head">
+          <span data-i18n="confidence">把握程度</span>
+          <strong id="r-conf">—</strong>
+        </div>
+        <div class="conf-track"><i id="r-conf-fill"></i></div>
+      </div>
+
+      <div class="banner banner-warn" id="r-retake" hidden>
+        <svg aria-hidden="true"><use href="#i-alert"/></svg>
+        <p data-i18n="low_confidence">看不清楚，请靠近一点再拍一次</p>
+      </div>
+      <div class="banner banner-ok" id="r-healthy" hidden>
+        <svg aria-hidden="true"><use href="#i-check"/></svg>
+        <p data-i18n="healthy_note">没发现问题，继续保持</p>
+      </div>
+
+      <section class="block">
+        <h3 data-i18n="result_actions">该怎么做</h3>
+        <ul class="todo" id="r-actions"></ul>
+      </section>
+
+      <section class="block voice">
+        <button type="button" class="play-btn" id="btn-replay" data-tip-key="replay_voice">
+          <svg aria-hidden="true" id="replay-icon"><use href="#i-volume"/></svg>
+        </button>
+        <div class="voice-body">
+          <strong data-i18n="replay_voice">再听一次</strong>
+          <p id="r-voice-text"></p>
+          <p class="notice inline" id="r-voice-note" hidden></p>
+        </div>
+      </section>
+
+      <div class="badges" id="r-badges"></div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary" id="btn-retake">
+          <svg aria-hidden="true"><use href="#i-retake"/></svg><span data-i18n="retake">再拍一次</span>
+        </button>
+        <button type="button" class="btn" id="btn-record">
+          <svg aria-hidden="true"><use href="#i-save"/></svg><span data-i18n="save_record">存起来</span>
+        </button>
+      </div>
+
+      <details class="more" id="r-more">
+        <summary>
+          <svg aria-hidden="true"><use href="#i-chev"/></svg>
+          <span data-i18n="view_detail">看细节</span>
+        </summary>
+        <dl class="kv" id="r-detail"></dl>
+      </details>
+    </section>
+
+    <!-- ===================== 视图 3：记录 ===================== -->
+    <section class="view" id="view-records" aria-label="识别记录" hidden>
+      <div class="view-head">
+        <h2 data-i18n="history_title">识别记录</h2>
+        <p id="rec-count">—</p>
+      </div>
+
+      <div class="chips scroll-x" id="rec-filters"></div>
+
+      <ul class="rec-list" id="rec-list"></ul>
+      <p class="empty" id="rec-empty" data-i18n="history_empty" hidden>还没有记录，去拍一张吧</p>
+      <button type="button" class="btn btn-ghost block" id="rec-more" hidden>
+        <svg aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="load_more">加载更多</span>
+      </button>
+
+      <section class="block">
+        <h3 data-i18n="export_records">导出数据</h3>
+        <div class="field-grid">
+          <label>
+            <span data-i18n="export_purpose">用途</span>
+            <select id="exp-purpose">
+              <option value="statistics" data-i18n="purpose_statistics">统计分析</option>
+              <option value="insurance" data-i18n="purpose_insurance">保险理赔</option>
+              <option value="subsidy" data-i18n="purpose_subsidy">补贴申报</option>
+              <option value="agri_supply" data-i18n="purpose_agri">农资备货</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="export_format">格式</span>
+            <select id="exp-fmt">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="both" data-i18n="export_both">两种都要</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="export_channel">送到哪里</span>
+            <select id="exp-channel">
+              <option value="local" data-i18n="channel_local">留在本机</option>
+              <option value="download" data-i18n="export_download">下载文件</option>
+              <option value="usb" data-i18n="export_usb">导出到U盘</option>
+              <option value="bluetooth" data-i18n="channel_bluetooth">蓝牙发送</option>
+            </select>
+          </label>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="exp-anon">
+          <span class="track"><span class="thumb"></span></span>
+          <span data-i18n="export_anonymize">隐去姓名电话</span>
+        </label>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btn-export">
+            <svg aria-hidden="true"><use href="#i-download"/></svg><span data-i18n="export_records">导出数据</span>
+          </button>
+          <button type="button" class="btn" id="btn-integrity">
+            <svg aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n="check_integrity">校验数据</span>
+          </button>
+        </div>
+        <div class="export-out" id="export-out" hidden></div>
+      </section>
+    </section>
+
+    <!-- ===================== 视图 4：设置 ===================== -->
+    <section class="view" id="view-settings" aria-label="设置" hidden>
+      <div class="view-head"><h2 data-i18n="nav_settings">设置</h2></div>
+
+      <section class="block">
+        <h3 data-i18n="language">播报语言</h3>
+        <div class="seg seg-wrap" id="set-lang"></div>
+        <p class="notice inline" id="set-lang-note" hidden></p>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="text_size">字体大小</h3>
+        <div class="seg" id="set-size">
+          <button type="button" data-v="standard" data-i18n="size_standard">标准</button>
+          <button type="button" data-v="large" data-i18n="size_large">大</button>
+          <button type="button" data-v="huge" data-i18n="size_huge">特大</button>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="voice_speed">播报速度</h3>
+        <div class="seg" id="set-speed">
+          <button type="button" data-v="slow" data-i18n="speed_slow">慢</button>
+          <button type="button" data-v="normal" data-i18n="speed_normal">正常</button>
+          <button type="button" data-v="fast" data-i18n="speed_fast">快</button>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="set-auto-voice">
+          <span class="track"><span class="thumb"></span></span>
+          <span data-i18n="auto_voice">出结果就自动播报</span>
+        </label>
+        <button type="button" class="btn btn-ghost block" id="btn-voice-test">
+          <svg aria-hidden="true"><use href="#i-volume"/></svg><span data-i18n="voice_test">试听一句</span>
+        </button>
+        <div class="voice-status" id="voice-status"></div>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="farmer_profile">农户信息（可留空）</h3>
+        <div class="field-grid">
+          <label><span data-i18n="profile_alias">称呼</span><input id="pf-alias" autocomplete="off"></label>
+          <label><span data-i18n="profile_farmer_id">编号</span><input id="pf-farmer-id" autocomplete="off"></label>
+          <label><span data-i18n="profile_village">村</span><input id="pf-village" autocomplete="off"></label>
+          <label><span data-i18n="profile_town">镇</span><input id="pf-town" autocomplete="off"></label>
+          <label><span data-i18n="profile_county">县</span><input id="pf-county" autocomplete="off"></label>
+          <label><span data-i18n="profile_plot">地块</span><input id="pf-plot" autocomplete="off"></label>
+        </div>
+        <button type="button" class="btn btn-primary block" id="btn-profile-save">
+          <svg aria-hidden="true"><use href="#i-save"/></svg><span data-i18n="save_record">存起来</span>
+        </button>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="model_info">模型信息</h3>
+        <dl class="kv" id="model-kv"></dl>
+        <div class="budget" id="budget-list"></div>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="data_links">数据与对接</h3>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btn-adapters">
+            <svg aria-hidden="true"><use href="#i-box"/></svg><span data-i18n="view_adapters">对接通道</span>
+          </button>
+          <button type="button" class="btn" id="btn-schemas">
+            <svg aria-hidden="true"><use href="#i-database"/></svg><span data-i18n="view_schemas">数据格式</span>
+          </button>
+        </div>
+        <dl class="kv" id="paths-kv"></dl>
+      </section>
+
+      <section class="block">
+        <h3 data-i18n="about_title">关于</h3>
+        <dl class="kv" id="about-kv"></dl>
+      </section>
+    </section>
+  </main>
+
+  <!-- ---------- 桌面端右侧状态栏 ---------- -->
+  <aside class="rail" id="rail" aria-label="运行状态">
+    <h3 data-i18n="rail_status">运行状态</h3>
+    <dl class="kv" id="rail-kv"></dl>
+    <h3 data-i18n="rail_budget">验收指标</h3>
+    <div class="budget" id="rail-budget"></div>
+    <h3 data-i18n="rail_voice">语音</h3>
+    <div class="voice-status" id="rail-voice"></div>
+  </aside>
+</div>
+
+<!-- ===================== 底部导航 ===================== -->
+<nav class="tabbar" role="tablist">
+  <button type="button" class="tab is-on" data-view="scan" role="tab">
+    <svg aria-hidden="true"><use href="#i-scan"/></svg><span data-i18n="nav_home">拍照识别</span>
+  </button>
+  <button type="button" class="tab" data-view="records" role="tab">
+    <svg aria-hidden="true"><use href="#i-history"/></svg><span data-i18n="nav_history">记录</span>
+    <em class="tab-badge" id="tab-badge" hidden>0</em>
+  </button>
+  <button type="button" class="tab" data-view="settings" role="tab">
+    <svg aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n="nav_settings">设置</span>
+  </button>
+</nav>
+
+<!-- ===================== 浮层 ===================== -->
+<div class="busy" id="busy" hidden>
+  <div class="busy-box">
+    <svg class="spin" aria-hidden="true"><use href="#i-spinner"/></svg>
+    <p data-i18n="analyzing">正在识别，请稍候</p>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-back" data-close="1"></div>
+  <div class="sheet-panel" role="dialog" aria-modal="true">
+    <div class="sheet-head">
+      <h3 id="sheet-title">—</h3>
+      <button type="button" class="icon-btn" id="sheet-close" aria-label="关闭">
+        <svg aria-hidden="true"><use href="#i-x"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body" id="sheet-body"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<audio id="player" preload="none"></audio>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>
