@@ -24,14 +24,34 @@ def read_image(path: PathLike, max_side: Optional[int] = 1280) -> ImageArray:
     手机直出的照片动辄 4000×3000，先在读取阶段降采样到 max_side，
     这是低端设备内存预算（≤200MB）里最容易被忽略的一处泄漏。
     """
-    from PIL import Image, ImageOps
+    from PIL import Image
 
     with Image.open(path) as im:
-        im = ImageOps.exif_transpose(im)  # 手机竖拍照片的方向藏在 EXIF 里
-        im = im.convert("RGB")
-        if max_side and max(im.size) > max_side:
-            im.thumbnail((max_side, max_side), Image.BILINEAR)
-        return np.asarray(im, dtype=np.uint8)
+        return _pil_to_array(im, max_side)
+
+
+def read_image_bytes(data: bytes, max_side: Optional[int] = 1280) -> ImageArray:
+    """从内存字节流读图（HTTP 上传走这条路），语义与 `read_image` 完全一致。
+
+    单独开一个入口而不是先落盘再读，是为了不在低端设备的存储上留临时文件；
+    两个函数共用 `_pil_to_array`，避免"网页识别和命令行识别结果不一样"这类漂移。
+    """
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(bytes(data))) as im:
+        return _pil_to_array(im, max_side)
+
+
+def _pil_to_array(im, max_side: Optional[int]) -> ImageArray:
+    from PIL import ImageOps
+
+    im = ImageOps.exif_transpose(im)  # 手机竖拍照片的方向藏在 EXIF 里
+    im = im.convert("RGB")
+    if max_side and max(im.size) > max_side:
+        im.thumbnail((max_side, max_side), Image.BILINEAR)
+    return np.asarray(im, dtype=np.uint8)
 
 
 def _pil_resize(img: ImageArray, size: Tuple[int, int]) -> ImageArray:
