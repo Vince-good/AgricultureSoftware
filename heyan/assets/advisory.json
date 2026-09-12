@@ -1,0 +1,328 @@
+{
+  "schema_version": "1.0",
+  "note": "农艺建议知识库。文案面向低识字率用户：短句、动词开头、一次不超过三条动作。voice_* 字段是播报稿，长度控制在 12 秒内。",
+  "severity_levels": [
+    { "id": "none", "name_zh": "正常", "name_en": "Normal", "order": 0, "color": "#2E7D32" },
+    { "id": "mild", "name_zh": "轻度", "name_en": "Mild", "order": 1, "color": "#4C8C2B" },
+    { "id": "moderate", "name_zh": "中度", "name_en": "Moderate", "order": 2, "color": "#C77700" },
+    { "id": "severe", "name_zh": "重度", "name_en": "Severe", "order": 3, "color": "#B3261E" }
+  ],
+  "entries": {
+    "rice_healthy": {
+      "summary_zh": "叶片颜色均匀，没有病斑、黄化或卷曲。",
+      "window_days": 0,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "无需购药", "keywords": [] },
+      "by_severity": {
+        "none": {
+          "actions_zh": ["按平常的肥水管理继续", "每三天巡一次田，重点看新叶"],
+          "actions_en": ["Keep your usual water and fertilizer routine", "Walk the field every three days, check new leaves"],
+          "voice_zh": "水稻正常，不用处理。三天后再看一次新叶。",
+          "voice_yue": "水稻正常，使理。三日之後再睇一次新葉。"
+        }
+      }
+    },
+    "rice_blast": {
+      "summary_zh": "叶上出现梭形、中间灰白、边缘褐色的病斑，是稻瘟病早期表现。",
+      "window_days": 5,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂", "keywords": ["三环唑", "春雷霉素", "稻瘟灵", "嘧菌酯"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["五天内喷一次三环唑", "暂时不要施氮肥", "把病叶摘掉带走烧掉"],
+          "actions_en": ["Spray tricyclazole within five days", "Hold off on nitrogen fertilizer", "Remove and burn the diseased leaves"],
+          "voice_zh": "稻瘟病刚开始。五天内喷一次三环唑，先不要施氮肥。",
+          "voice_yue": "稻瘟病啱啱開始。五日之內噴一次三環唑，先好施氮肥。"
+        },
+        "moderate": {
+          "actions_zh": ["立刻喷三环唑，隔七天再喷一次", "停止氮肥，改施钾肥", "拍照片带去农技站确认"],
+          "actions_en": ["Spray tricyclazole now, repeat after seven days", "Stop nitrogen, apply potash instead", "Bring photos to the local extension station"],
+          "voice_zh": "稻瘟病已经扩散。今天喷药，七天后再喷一次，氮肥要停。",
+          "voice_yue": "稻瘟病已經擴散。今日噴藥，七日後再噴一次，氮肥要停。"
+        },
+        "severe": {
+          "actions_zh": ["当天联系农技站上门看田", "按农技站方案用药，不要自行加量", "拍照留证，可用于保险定损"],
+          "actions_en": ["Contact the extension station the same day", "Follow their spray program, do not overdose", "Keep photos as evidence for insurance assessment"],
+          "voice_zh": "稻瘟病很严重。今天就要找农技站，照片可以留着报保险。",
+          "voice_yue": "稻瘟病好嚴重。今日就要搵農技站，相片可以留低報保險。"
+        }
+      }
+    },
+    "rice_brown_spot": {
+      "summary_zh": "叶上密布椭圆形褐色小斑，像芝麻粒，多与缺肥、缺水叠加发生。",
+      "window_days": 7,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂 / 钾肥", "keywords": ["苯醚甲环唑", "代森锰锌", "氯化钾"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["补一次钾肥", "保持浅水层，不要让田干裂"],
+          "actions_en": ["Top-dress potash", "Keep a shallow water layer, do not let the field crack"],
+          "voice_zh": "胡麻叶斑病初期。补点钾肥，田里保持浅水。",
+          "voice_yue": "胡麻葉斑病初期。補啲鉀肥，田保持淺水。"
+        },
+        "moderate": {
+          "actions_zh": ["喷代森锰锌", "同时补钾肥", "七天后复查一次"],
+          "actions_en": ["Spray mancozeb", "Apply potash at the same time", "Recheck after seven days"],
+          "voice_zh": "胡麻叶斑病中度。喷代森锰锌，再补钾肥，七天后复查。",
+          "voice_yue": "胡麻葉斑病中度。噴代森錳鋅，再補鉀肥，七日後複查。"
+        },
+        "severe": {
+          "actions_zh": ["改用苯醚甲环唑等内吸性药剂", "请农技站判断是否叠加缺素", "拍照留证备保险定损"],
+          "actions_en": ["Switch to a systemic fungicide", "Ask the extension station to check for nutrient issues", "Keep photos for insurance assessment"],
+          "voice_zh": "胡麻叶斑病很重。要用内吸性药，并请农技站来看。",
+          "voice_yue": "胡麻葉斑病好重。要用內吸性藥，請農技站嚟睇。"
+        }
+      }
+    },
+    "rice_n_deficiency": {
+      "summary_zh": "老叶从叶尖开始均匀发黄，新叶偏淡绿，整片田颜色偏浅。",
+      "window_days": 10,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "氮肥", "keywords": ["尿素", "硫酸铵", "复合肥"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["每亩追施尿素三到五公斤", "施肥后保持浅水三天"],
+          "actions_en": ["Top-dress 3-5 kg urea per mu", "Keep shallow water for three days after"],
+          "voice_zh": "水稻有点缺氮。每亩追尿素三到五公斤，保持浅水。",
+          "voice_yue": "水稻有啲缺氮。每畝追尿素三到五公斤，保持淺水。"
+        },
+        "moderate": {
+          "actions_zh": ["追施尿素并配钾肥", "叶面喷一次尿素液", "十天后复查叶色"],
+          "actions_en": ["Apply urea with potash", "Do one foliar urea spray", "Recheck leaf colour in ten days"],
+          "voice_zh": "水稻缺氮明显。追尿素加钾肥，叶面再喷一次。",
+          "voice_yue": "水稻缺氮明顯。追尿素加鉀肥，葉面再噴一次。"
+        },
+        "severe": {
+          "actions_zh": ["分两次追肥，不要一次下太多", "检查是不是排水过勤导致脱肥", "请农技站测一次土壤"],
+          "actions_en": ["Split the fertilizer into two doses", "Check whether over-drainage washed nutrients away", "Ask for a soil test"],
+          "voice_zh": "水稻缺氮严重。肥料要分两次施，最好请农技站测土。",
+          "voice_yue": "水稻缺氮嚴重。肥料要分兩次施，最好請農技站測土。"
+        }
+      }
+    },
+    "rice_water_stress": {
+      "summary_zh": "叶片卷曲成筒状、颜色发暗，中午萎蔫明显，属缺水胁迫。",
+      "window_days": 2,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "灌溉 / 抗旱", "keywords": ["灌溉", "保水剂"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["傍晚灌水一次", "避免中午高温时段灌水"],
+          "actions_en": ["Irrigate once in the evening", "Avoid irrigating at midday"],
+          "voice_zh": "水稻开始缺水。傍晚灌一次水就好。",
+          "voice_yue": "水稻開始缺水。傍晚灌一次水就得。"
+        },
+        "moderate": {
+          "actions_zh": ["立刻灌水，保持三厘米水层", "两天内不要施肥"],
+          "actions_en": ["Irrigate immediately, keep a 3 cm water layer", "Do not fertilize for two days"],
+          "voice_zh": "水稻缺水明显。马上灌水，保持三厘米水层。",
+          "voice_yue": "水稻缺水明顯。即刻灌水，保持三厘米水層。"
+        },
+        "severe": {
+          "actions_zh": ["优先抢灌，保苗为先", "如无水源，联系村委协调抽水", "拍照留证，可申请旱灾定损"],
+          "actions_en": ["Irrigate first to save the seedlings", "If no water source, ask the village committee to arrange pumping", "Keep photos; drought loss can be claimed"],
+          "voice_zh": "水稻缺水很严重。要马上想办法灌水，照片可以报旱灾损失。",
+          "voice_yue": "水稻缺水好嚴重。要即刻諗辦法灌水，相片可以報旱災損失。"
+        }
+      }
+    },
+    "peanut_healthy": {
+      "summary_zh": "叶片浓绿饱满，无褐斑、无黄化、无萎蔫。",
+      "window_days": 0,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "无需购药", "keywords": [] },
+      "by_severity": {
+        "none": {
+          "actions_zh": ["保持土壤疏松，注意排水", "开花下针期补钙"],
+          "actions_en": ["Keep soil loose and well drained", "Add calcium at the pegging stage"],
+          "voice_zh": "花生正常，不用处理。注意排水，开花期补点钙。",
+          "voice_yue": "花生正常，使理。注意排水，開花期補啲鈣。"
+        }
+      }
+    },
+    "peanut_leaf_spot": {
+      "summary_zh": "叶片正面出现圆形褐色或黑褐色病斑，周围常有黄色晕圈。",
+      "window_days": 7,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂", "keywords": ["苯醚甲环唑", "吡唑醚菌酯", "多菌灵"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["摘除下部病叶", "喷一次苯醚甲环唑", "改善通风，别种太密"],
+          "actions_en": ["Remove lower diseased leaves", "Spray difenoconazole once", "Improve airflow, avoid dense planting"],
+          "voice_zh": "花生叶斑病刚开始。摘掉下面的病叶，喷一次药。",
+          "voice_yue": "花生葉斑病啱啱開始。摘走下面嘅病葉，噴一次藥。"
+        },
+        "moderate": {
+          "actions_zh": ["喷吡唑醚菌酯", "隔十到十五天再喷一次", "病叶集中烧掉或深埋"],
+          "actions_en": ["Spray pyraclostrobin", "Repeat after ten to fifteen days", "Burn or bury the diseased leaves"],
+          "voice_zh": "花生叶斑病中度。喷吡唑醚菌酯，十天后补喷一次。",
+          "voice_yue": "花生葉斑病中度。噴吡唑醚菌酯，十日後補噴一次。"
+        },
+        "severe": {
+          "actions_zh": ["两种不同机理药剂交替使用", "同时检查是否缺肥导致抗性下降", "拍照留证备保险定损"],
+          "actions_en": ["Alternate two fungicides with different modes of action", "Check whether low fertility weakened the plants", "Keep photos for insurance assessment"],
+          "voice_zh": "花生叶斑病很重。要交替用药，并请农技站指导。",
+          "voice_yue": "花生葉斑病好重。要交替用藥，請農技站指導。"
+        }
+      }
+    },
+    "peanut_n_deficiency": {
+      "summary_zh": "新叶先变淡黄、叶脉仍绿，植株偏矮，根瘤可能发育不良。",
+      "window_days": 10,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "氮肥 / 根瘤菌剂", "keywords": ["尿素", "钼酸铵", "根瘤菌剂"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["少量追施尿素", "叶面喷钼酸铵促根瘤"],
+          "actions_en": ["Light urea top-dressing", "Foliar molybdate to boost nodulation"],
+          "voice_zh": "花生有点缺氮。少量追尿素，叶面喷点钼肥。",
+          "voice_yue": "花生有啲缺氮。少量追尿素，葉面噴啲鉬肥。"
+        },
+        "moderate": {
+          "actions_zh": ["追尿素配磷钾肥", "检查土壤是否过酸影响固氮", "十天后复查"],
+          "actions_en": ["Apply urea with phosphorus and potassium", "Check whether acidic soil limits nitrogen fixation", "Recheck in ten days"],
+          "voice_zh": "花生缺氮明显。追尿素加磷钾，看看土是不是太酸。",
+          "voice_yue": "花生缺氮明顯。追尿素加磷鉀，睇下土係咪太酸。"
+        },
+        "severe": {
+          "actions_zh": ["分次补氮，避免烧根", "请农技站测土并调酸", "下茬播种前拌根瘤菌剂"],
+          "actions_en": ["Split nitrogen applications to avoid root burn", "Get a soil test and correct acidity", "Inoculate seeds with rhizobia next season"],
+          "voice_zh": "花生缺氮严重。肥料分次施，最好请农技站测土调酸。",
+          "voice_yue": "花生缺氮嚴重。肥料分次施，最好請農技站測土調酸。"
+        }
+      }
+    },
+    "peanut_water_stress": {
+      "summary_zh": "叶片白天萎蔫下垂、颜色变暗，土壤板结开裂。",
+      "window_days": 2,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "灌溉 / 覆盖", "keywords": ["灌溉", "秸秆覆盖"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["早晚浇一次水", "行间盖秸秆保墒"],
+          "actions_en": ["Water once in the morning or evening", "Mulch between rows to hold moisture"],
+          "voice_zh": "花生有点缺水。早晚浇一次水，行间盖点秸秆。",
+          "voice_yue": "花生有啲缺水。朝晚淋一次水，行間蓋啲稻草。"
+        },
+        "moderate": {
+          "actions_zh": ["立即沟灌，浇透不积水", "结荚期缺水会明显减产，优先保水"],
+          "actions_en": ["Furrow irrigate now, soak without waterlogging", "Water shortage at podding cuts yield sharply"],
+          "voice_zh": "花生缺水明显。马上沟灌浇透，这时候缺水最影响产量。",
+          "voice_yue": "花生缺水明顯。即刻溝灌淋透，呢陣缺水最影響產量。"
+        },
+        "severe": {
+          "actions_zh": ["抢灌保苗", "协调村委抽水设备", "拍照留证，可申请旱灾定损"],
+          "actions_en": ["Emergency irrigation to save the crop", "Coordinate pumping with the village committee", "Keep photos for drought loss claims"],
+          "voice_zh": "花生缺水很严重。要马上抢灌，照片可以报旱灾损失。",
+          "voice_yue": "花生缺水好嚴重。要即刻搶灌，相片可以報旱災損失。"
+        }
+      }
+    },
+    "vegetable_healthy": {
+      "summary_zh": "叶片舒展、色泽均匀，无霉层、无斑点、无萎蔫。",
+      "window_days": 0,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "无需购药", "keywords": [] },
+      "by_severity": {
+        "none": {
+          "actions_zh": ["保持通风透光", "浇水见干见湿，避免叶面长期积水"],
+          "actions_en": ["Keep good airflow and light", "Water when the soil surface dries; avoid wet foliage"],
+          "voice_zh": "蔬菜正常，不用处理。注意通风，别让叶子长期湿。",
+          "voice_yue": "蔬菜正常，使理。注意通風，唔好等葉長期濕。"
+        }
+      }
+    },
+    "vegetable_downy_mildew": {
+      "summary_zh": "叶面出现受叶脉限制的黄色斑，叶背对应位置有灰白色霉层。",
+      "window_days": 3,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂", "keywords": ["烯酰吗啉", "霜脲氰", "氟菌·霜霉威"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["摘掉病叶带出菜地", "早上浇水，别在傍晚浇", "喷一次烯酰吗啉"],
+          "actions_en": ["Remove diseased leaves from the plot", "Water in the morning, not in the evening", "Spray dimethomorph once"],
+          "voice_zh": "霜霉病刚开始。摘掉病叶，改早上浇水，喷一次药。",
+          "voice_yue": "霜霉病啱啱開始。摘走病葉，改朝早淋水，噴一次藥。"
+        },
+        "moderate": {
+          "actions_zh": ["喷霜脲氰代森锰锌", "五到七天后再喷一次", "加大行距通风降湿"],
+          "actions_en": ["Spray cymoxanil plus mancozeb", "Repeat in five to seven days", "Increase spacing to lower humidity"],
+          "voice_zh": "霜霉病中度。今天喷药，七天后补喷一次，要多通风。",
+          "voice_yue": "霜霉病中度。今日噴藥，七日後補噴一次，要多通風。"
+        },
+        "severe": {
+          "actions_zh": ["清除重病株，别留在地里", "轮换不同机理药剂防抗性", "如为大棚，抓紧降湿"],
+          "actions_en": ["Clear heavily infected plants", "Rotate fungicide modes of action to prevent resistance", "In greenhouses, reduce humidity urgently"],
+          "voice_zh": "霜霉病很严重。重病株要清走，药剂要轮换使用。",
+          "voice_yue": "霜霉病好嚴重。重病株要清走，藥劑要輪換使用。"
+        }
+      }
+    },
+    "vegetable_p_deficiency": {
+      "summary_zh": "老叶叶色暗绿转紫红，生长缓慢，茎细弱。",
+      "window_days": 10,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "磷肥", "keywords": ["过磷酸钙", "磷酸二氢钾", "磷铵"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["叶面喷磷酸二氢钾", "见效快，三到五天可见转色"],
+          "actions_en": ["Foliar spray potassium dihydrogen phosphate", "Colour should improve within three to five days"],
+          "voice_zh": "蔬菜有点缺磷。叶面喷磷酸二氢钾，几天就能好转。",
+          "voice_yue": "蔬菜有啲缺磷。葉面噴磷酸二氫鉀，幾日就會好轉。"
+        },
+        "moderate": {
+          "actions_zh": ["土施过磷酸钙", "同时叶面喷磷钾", "低温期磷吸收差，注意保温"],
+          "actions_en": ["Apply superphosphate to soil", "Combine with foliar phosphorus and potassium", "Cold soil limits phosphorus uptake; keep warm"],
+          "voice_zh": "蔬菜缺磷明显。土里施磷肥，叶面也喷一次。",
+          "voice_yue": "蔬菜缺磷明顯。土入面施磷肥，葉面都噴一次。"
+        },
+        "severe": {
+          "actions_zh": ["检查土壤酸碱度，过酸会锁住磷", "配施有机肥改善根系", "请农技站做一次测土"],
+          "actions_en": ["Check soil pH; acidic soil locks up phosphorus", "Add organic matter to improve roots", "Request a soil test"],
+          "voice_zh": "蔬菜缺磷严重。可能是土太酸，建议请农技站测土。",
+          "voice_yue": "蔬菜缺磷嚴重。可能係土太酸，建議請農技站測土。"
+        }
+      }
+    },
+    "vegetable_water_stress": {
+      "summary_zh": "叶片下垂发软、边缘卷曲，中午萎蔫、傍晚略恢复。",
+      "window_days": 1,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "灌溉 / 覆盖", "keywords": ["滴灌", "秸秆覆盖", "遮阳网"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["早晚各浇一次", "中午拉遮阳网"],
+          "actions_en": ["Water morning and evening", "Use shade cloth at midday"],
+          "voice_zh": "蔬菜有点缺水。早晚各浇一次水，中午遮一下阴。",
+          "voice_yue": "蔬菜有啲缺水。朝晚各淋一次水，中午遮下陰。"
+        },
+        "moderate": {
+          "actions_zh": ["立即浇透水", "地表盖草保墒", "暂停中午采收"],
+          "actions_en": ["Water deeply right away", "Mulch the surface", "Stop harvesting at midday"],
+          "voice_zh": "蔬菜缺水明显。马上浇透水，地面盖草保水。",
+          "voice_yue": "蔬菜缺水明顯。即刻淋透水，地面蓋草保水。"
+        },
+        "severe": {
+          "actions_zh": ["分次少量浇水，避免一次性大水伤根", "搭建遮阳网降低蒸腾", "拍照留证备灾损评估"],
+          "actions_en": ["Water in small repeated doses to avoid root shock", "Erect shade nets to cut transpiration", "Keep photos for loss assessment"],
+          "voice_zh": "蔬菜缺水很严重。要分次少量浇水，搭遮阳网。",
+          "voice_yue": "蔬菜缺水好嚴重。要分次少量淋水，搭遮陽網。"
+        }
+      }
+    },
+    "unusable": {
+      "summary_zh": "画面里没有清晰叶片，可能是土壤、杂草或拍糊了。",
+      "window_days": 0,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "无", "keywords": [] },
+      "by_severity": {
+        "none": {
+          "actions_zh": ["走近一点，让一片叶子占满画面", "避开强逆光和阴影", "手稳住再按快门"],
+          "actions_en": ["Move closer so one leaf fills the frame", "Avoid strong backlight and shadows", "Hold steady before pressing the shutter"],
+          "voice_zh": "没拍到叶片。请靠近一点，让一片叶子占满画面，手稳住再拍。",
+          "voice_yue": "冇影到葉片。請行近啲，等一片葉佔滿畫面，手揸穩再影。"
+        }
+      }
+    }
+  }
+}

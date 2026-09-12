@@ -1,0 +1,10 @@
+# 完整开发/训练环境（PC 或工作站）
+-r requirements-edge.txt
+flask>=3.0
+flask-cors>=4.0
+onnx>=1.15
+onnxruntime>=1.17
+torch>=2.1
+torchvision>=0.16
+pytest>=8.0
+psutil>=5.9

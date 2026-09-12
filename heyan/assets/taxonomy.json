@@ -1,0 +1,175 @@
+{
+  "schema_version": "1.0",
+  "region": "广东省粤东西北农业区",
+  "description": "小农户作物隐形胁迫识别类别体系。覆盖调研区主要作物（水稻、花生、蔬菜）与三类隐形胁迫（早期病害、营养缺乏、水分胁迫），另设 unusable 类兜住杂草/土壤/糊片等非作物画面，避免系统在田间复杂背景下强行给结论。",
+  "crops": {
+    "rice": { "name_zh": "水稻", "name_en": "Rice" },
+    "peanut": { "name_zh": "花生", "name_en": "Peanut" },
+    "vegetable": { "name_zh": "蔬菜", "name_en": "Vegetable" },
+    "none": { "name_zh": "非作物", "name_en": "Not a crop" }
+  },
+  "stress_types": {
+    "healthy": { "name_zh": "健康", "name_en": "Healthy", "is_stress": false },
+    "disease": { "name_zh": "早期病害", "name_en": "Early disease", "is_stress": true },
+    "nutrient": { "name_zh": "营养缺乏", "name_en": "Nutrient deficiency", "is_stress": true },
+    "water": { "name_zh": "水分胁迫", "name_en": "Water stress", "is_stress": true },
+    "invalid": { "name_zh": "无法识别", "name_en": "Unusable", "is_stress": false }
+  },
+  "classes": [
+    {
+      "id": "rice_healthy",
+      "index": 0,
+      "crop": "rice",
+      "stress": "healthy",
+      "name_zh": "水稻·健康",
+      "name_en": "Rice healthy",
+      "icon": "leaf_healthy",
+      "voice_zh": "水稻长势正常，没有发现问题。",
+      "voice_yue": "水稻生長正常，冇發現問題。"
+    },
+    {
+      "id": "rice_blast",
+      "index": 1,
+      "crop": "rice",
+      "stress": "disease",
+      "name_zh": "水稻·稻瘟病（早期叶瘟）",
+      "name_en": "Rice blast (early leaf blast)",
+      "icon": "leaf_spots",
+      "voice_zh": "水稻可能得了稻瘟病，要尽快处理。",
+      "voice_yue": "水稻可能生咗稻瘟病，要快啲處理。"
+    },
+    {
+      "id": "rice_brown_spot",
+      "index": 2,
+      "crop": "rice",
+      "stress": "disease",
+      "name_zh": "水稻·胡麻叶斑病",
+      "name_en": "Rice brown spot",
+      "icon": "leaf_spots",
+      "voice_zh": "水稻可能得了胡麻叶斑病。",
+      "voice_yue": "水稻可能生咗胡麻葉斑病。"
+    },
+    {
+      "id": "rice_n_deficiency",
+      "index": 3,
+      "crop": "rice",
+      "stress": "nutrient",
+      "name_zh": "水稻·缺氮黄化",
+      "name_en": "Rice nitrogen deficiency",
+      "icon": "leaf_yellow",
+      "voice_zh": "水稻像是缺氮肥，叶子发黄。",
+      "voice_yue": "水稻好似缺氮肥，葉黃咗。"
+    },
+    {
+      "id": "rice_water_stress",
+      "index": 4,
+      "crop": "rice",
+      "stress": "water",
+      "name_zh": "水稻·水分胁迫",
+      "name_en": "Rice water stress",
+      "icon": "leaf_wilt",
+      "voice_zh": "水稻缺水了，叶片在打卷。",
+      "voice_yue": "水稻缺水，葉片捲咗。"
+    },
+    {
+      "id": "peanut_healthy",
+      "index": 5,
+      "crop": "peanut",
+      "stress": "healthy",
+      "name_zh": "花生·健康",
+      "name_en": "Peanut healthy",
+      "icon": "leaf_healthy",
+      "voice_zh": "花生长势正常，没有发现问题。",
+      "voice_yue": "花生生長正常，冇發現問題。"
+    },
+    {
+      "id": "peanut_leaf_spot",
+      "index": 6,
+      "crop": "peanut",
+      "stress": "disease",
+      "name_zh": "花生·叶斑病",
+      "name_en": "Peanut leaf spot",
+      "icon": "leaf_spots",
+      "voice_zh": "花生可能得了叶斑病。",
+      "voice_yue": "花生可能生咗葉斑病。"
+    },
+    {
+      "id": "peanut_n_deficiency",
+      "index": 7,
+      "crop": "peanut",
+      "stress": "nutrient",
+      "name_zh": "花生·缺氮黄化",
+      "name_en": "Peanut nitrogen deficiency",
+      "icon": "leaf_yellow",
+      "voice_zh": "花生像是缺氮肥，叶子发黄。",
+      "voice_yue": "花生好似缺氮肥，葉黃咗。"
+    },
+    {
+      "id": "peanut_water_stress",
+      "index": 8,
+      "crop": "peanut",
+      "stress": "water",
+      "name_zh": "花生·水分胁迫",
+      "name_en": "Peanut water stress",
+      "icon": "leaf_wilt",
+      "voice_zh": "花生缺水了，叶子发软下垂。",
+      "voice_yue": "花生缺水，葉軟咗垂低。"
+    },
+    {
+      "id": "vegetable_healthy",
+      "index": 9,
+      "crop": "vegetable",
+      "stress": "healthy",
+      "name_zh": "蔬菜·健康",
+      "name_en": "Vegetable healthy",
+      "icon": "leaf_healthy",
+      "voice_zh": "蔬菜长势正常，没有发现问题。",
+      "voice_yue": "蔬菜生長正常，冇發現問題。"
+    },
+    {
+      "id": "vegetable_downy_mildew",
+      "index": 10,
+      "crop": "vegetable",
+      "stress": "disease",
+      "name_zh": "蔬菜·霜霉病",
+      "name_en": "Vegetable downy mildew",
+      "icon": "leaf_mildew",
+      "voice_zh": "蔬菜可能得了霜霉病，叶背有白霉。",
+      "voice_yue": "蔬菜可能生咗霜霉病，葉背有白霉。"
+    },
+    {
+      "id": "vegetable_p_deficiency",
+      "index": 11,
+      "crop": "vegetable",
+      "stress": "nutrient",
+      "name_zh": "蔬菜·缺磷暗紫",
+      "name_en": "Vegetable phosphorus deficiency",
+      "icon": "leaf_purple",
+      "voice_zh": "蔬菜像是缺磷，叶子发暗发紫。",
+      "voice_yue": "蔬菜好似缺磷，葉暗同發紫。"
+    },
+    {
+      "id": "vegetable_water_stress",
+      "index": 12,
+      "crop": "vegetable",
+      "stress": "water",
+      "name_zh": "蔬菜·水分胁迫",
+      "name_en": "Vegetable water stress",
+      "icon": "leaf_wilt",
+      "voice_zh": "蔬菜缺水了，叶子发软。",
+      "voice_yue": "蔬菜缺水，葉軟咗。"
+    },
+    {
+      "id": "unusable",
+      "index": 13,
+      "crop": "none",
+      "stress": "invalid",
+      "name_zh": "画面无法识别",
+      "name_en": "Unusable image",
+      "icon": "retake",
+      "voice_zh": "没有拍到叶片，请靠近一点，让叶子占满画面，再拍一次。",
+      "voice_yue": "冇影到葉片，請行近啲，等葉片佔滿畫面，再影一次。",
+      "is_fallback": true
+    }
+  ]
+}

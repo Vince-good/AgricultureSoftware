@@ -1,0 +1,4 @@
+# 边缘设备最小依赖：300 元级开发板 / 低端手机 Termux 环境
+# 识别核心在缺少 onnxruntime 时会自动退回纯 NumPy 解释器 (heyan/core/backends/numpy_onnx.py)
+numpy>=1.24
+pillow>=9.0

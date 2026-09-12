@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heyan"
+version = "0.1.0"
+description = "禾眼 HeYan - 面向小农户的离线作物胁迫视觉识别系统 (MobileNetV3 + INT8 边缘推理 + 语音播报)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "HeYan Project" }]
+keywords = ["edge-ai", "agriculture", "mobilenetv3", "int8", "offline", "smallholder"]
+# 边缘设备运行只需 numpy + pillow，其余按场景选装（见 requirements-*.txt）
+dependencies = ["numpy>=1.24", "pillow>=9.0"]
+
+[project.optional-dependencies]
+serve = ["flask>=3.0", "flask-cors>=4.0"]
+onnx = ["onnx>=1.15", "onnxruntime>=1.17"]
+train = ["torch>=2.1", "torchvision>=0.16"]
+dev = ["pytest>=8.0", "psutil>=5.9"]
+
+[project.scripts]
+heyan = "heyan.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["heyan*"]
+
+[tool.setuptools.package-data]
+heyan = ["assets/*.json", "server/static/**/*", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

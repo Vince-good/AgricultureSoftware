@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+# 训练产物与数据集体积大，不入库
+data/
+runs/
+artifacts/
+*.pt
+*.pth
+*.onnx
+!heyan/assets/*.onnx
+*.wav
+!heyan/assets/voicepacks/**/*.wav
+*.db
+*.sqlite3
+.DS_Store
+Thumbs.db
