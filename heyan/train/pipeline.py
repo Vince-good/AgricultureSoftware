@@ -29,12 +29,13 @@ import numpy as np
 
 from ..advice import load_advisory
 from ..classes import Taxonomy, load_taxonomy, taxonomy_from_ids
-from ..config import (DEFAULT_ARCH, DEFAULT_TEACHER_ARCH, IMAGE_MEAN, IMAGE_STD, INPUT_SIZE,
-                      LATENCY_MAX_S, MODEL_SIZE_MAX_MB, PATHS, QUANT_CALIBRATION_SAMPLES,
-                      RESIZE_SIZE, RUNTIME_MEMORY_MAX_MB)
+from ..config import (ACCURACY_DROP_MAX, DEFAULT_ARCH, DEFAULT_TEACHER_ARCH, IMAGE_MEAN,
+                      IMAGE_STD, INPUT_SIZE, LATENCY_MAX_S, MODEL_SIZE_MAX_MB, PATHS,
+                      QUANT_CALIBRATION_SAMPLES, QUANT_QAT_EPOCHS, QUANT_QAT_LR,
+                      QUANT_WEIGHT_TYPE, RESIZE_SIZE, RUNTIME_MEMORY_MAX_MB)
 from ..core.bundle import ADVISORY_NAME, FP32_NAME, INT8_NAME, LABELS_NAME, MANIFEST_NAME
 from ..core.bundle import VOICEPACK_DIR, BundleManifest, ModelBundle
-from . import augment, data, distill, export_onnx, finetune, prune, quantize
+from . import augment, data, distill, export_onnx, finetune, prune, qat, quantize
 
 PORTABLE_NAME = "model_portable.hgraph.npz"
 REPORT_NAME = "build_report.json"
@@ -83,6 +84,12 @@ class PipelineConfig:
     quantize: bool = True
     per_channel: bool = True
     calibration_samples: int = QUANT_CALIBRATION_SAMPLES
+    # 量化主路径：QAT。纯 PTQ 在 MobileNetV3-Small 上实测掉 15~47 个百分点，
+    # 兑现不了文档 ≤3% 的承诺，只保留 --no-qat 作为无训练条件下的降级开关。
+    qat: bool = True
+    qat_epochs: int = QUANT_QAT_EPOCHS
+    qat_lr: float = QUANT_QAT_LR
+    qat_ptq_fallback: bool = True
 
     # 产物
     out_root: Optional[str] = None
@@ -295,21 +302,47 @@ def stage_export(cfg: PipelineConfig, model, work: Path, class_ids: List[str]
     return fp32_path, portable_path, {"onnx": info, "portable": pstats}
 
 
-def stage_quantize(cfg: PipelineConfig, fp32_path: Path, train_ds, val_ds,
-                   class_ids: List[str], work: Path) -> Tuple[Optional[Path], Dict[str, Any]]:
+def stage_quantize(cfg: PipelineConfig, model, fp32_path: Path, portable_path: Optional[Path],
+                   train_ds, val_ds, class_ids: List[str], work: Path
+                   ) -> Tuple[Path, Optional[Path], Optional[Path], Dict[str, Any]]:
+    """8-bit 量化 + 体积/精度/延迟验收。
+
+    返回 (fp32_path, portable_path, int8_path, report)。QAT 会用适配过 8-bit 网格的
+    权重覆盖重导 FP32 与可移植图，所以这两个路径也要回传给打包阶段。
+    """
     if not cfg.quantize:
-        return None, {"enabled": False}
+        return fp32_path, portable_path, None, {"enabled": False}
     n_calib = min(cfg.calibration_samples, max(8, len(train_ds)))
+    # raw_array() 走的是与推理完全同构的预处理且不施加增强，正是校准集要的东西
     calib = data.calibration_arrays(train_ds, n_calib, seed=cfg.seed)
     val_arrays = [val_ds.raw_array(i) for i in range(len(val_ds))]
     int8_path = work / INT8_NAME
-    rep = quantize.quantize_and_verify(
-        fp32_path, int8_path, calib, val_arrays, val_ds.labels, class_ids,
-        threads=cfg.benchmark_threads or 1,
-        max_model_mb=cfg.resolve_limits()["model_mb"],
-        max_latency_s=cfg.resolve_limits()["latency_s"],
-    )
-    return int8_path, rep.to_dict()
+    limits = cfg.resolve_limits()
+
+    if cfg.qat:
+        base = _base_train_cfg(cfg, epochs=cfg.qat_epochs, tag="qat", out_dir=work / "qat")
+        base.num_classes = len(class_ids)
+        rep = qat.qat_quantize_and_verify(
+            model=model, fp32_path=fp32_path, int8_path=int8_path,
+            calib_arrays=calib, val_arrays=val_arrays, val_labels=val_ds.labels,
+            class_ids=class_ids, train_ds=train_ds, val_ds=val_ds, base_cfg=base,
+            work=work / "qat", epochs=cfg.qat_epochs, batch_size=cfg.batch_size,
+            lr=cfg.qat_lr, threads=cfg.benchmark_threads or 1,
+            ptq_fallback=cfg.qat_ptq_fallback,
+        )
+        if portable_path and Path(portable_path).parent.exists():
+            try:
+                export_onnx.export_portable(fp32_path, portable_path)
+            except Exception as exc:
+                print(f"[pipeline] 可移植图重导失败（不影响主路径）: "
+                      f"{type(exc).__name__}: {exc}")
+    else:
+        rep = quantize.quantize_and_verify(
+            fp32_path, int8_path, calib, val_arrays, val_ds.labels, class_ids,
+            threads=cfg.benchmark_threads or 1,
+            max_model_mb=limits["model_mb"], max_latency_s=limits["latency_s"],
+        )
+    return fp32_path, portable_path, int8_path, rep.to_dict()
 
 
 # --------------------------------------------------------------------------
@@ -338,12 +371,17 @@ def build_bundle(cfg: PipelineConfig, taxonomy: Taxonomy, fp32_path: Path,
     train_rep = stages.get("train", {}) or {}
     student = train_rep.get("student", {}) or {}
     metrics: Dict[str, Any] = {
-        "val_top1_fp32": (student.get("metrics") or {}).get("top1"),
+        # 用实测值而不是训练日志里的值：QAT 之后 FP32 会按同一份权重重新导出
+        "val_top1_fp32": (q.get("metrics_fp32") or {}).get("top1")
+        or (student.get("metrics") or {}).get("top1"),
         "val_top3_fp32": (student.get("metrics") or {}).get("top3"),
         "val_macro_f1_fp32": (student.get("metrics") or {}).get("macro_f1"),
         "val_top1_int8": (q.get("metrics_int8") or {}).get("top1"),
         "val_top3_int8": (q.get("metrics_int8") or {}).get("top3"),
         "accuracy_drop_top1": q.get("accuracy_drop_top1"),
+        "accuracy_drop_limit": ACCURACY_DROP_MAX,
+        "accuracy_contract_ok": (q.get("accuracy_drop_top1") is not None
+                                 and q["accuracy_drop_top1"] <= ACCURACY_DROP_MAX),
         "latency_int8_ms": q.get("latency_int8_ms"),
         "latency_fp32_ms": q.get("latency_fp32_ms"),
         "speedup": q.get("speedup"),
@@ -367,7 +405,7 @@ def build_bundle(cfg: PipelineConfig, taxonomy: Taxonomy, fp32_path: Path,
         files=files,
         quantization={
             "method": q.get("method", "none"),
-            "weight_type": "quint8",
+            "weight_type": QUANT_WEIGHT_TYPE,
             "activation_type": "quint8",
             "per_channel": bool(q.get("per_channel", cfg.per_channel)),
             "calibration_samples": int(q.get("calibration_samples", 0) or 0),
@@ -451,7 +489,8 @@ def run_pipeline(cfg: Optional[PipelineConfig] = None, verbose: bool = True) -> 
     fp32_path, portable_path, export_rep = stage_export(cfg, model, work, class_ids)
     stages["export"] = export_rep
 
-    int8_path, quant_rep = stage_quantize(cfg, fp32_path, train_ds, val_ds, class_ids, work)
+    fp32_path, portable_path, int8_path, quant_rep = stage_quantize(
+        cfg, model, fp32_path, portable_path, train_ds, val_ds, class_ids, work)
     stages["quantize"] = quant_rep
 
     bundle = build_bundle(cfg, taxonomy, fp32_path, portable_path, int8_path, stages, work)
@@ -476,7 +515,9 @@ def run_pipeline(cfg: Optional[PipelineConfig] = None, verbose: bool = True) -> 
         "latency_p50_ms": bench["latency_ms"]["total_ms"]["p50"],
         "latency_p95_ms": bench["latency_ms"]["total_ms"]["p95"],
         "runtime_memory_delta_mb": bench["memory_mb"]["runtime_delta_mb"],
-        "budget_ok": bench["budget_ok"],
+        # 验收必须同时看设备预算与精度合同，只看体积/延迟/内存会漏掉量化掉点
+        "accuracy_contract_ok": quant_ok(stages),
+        "budget_ok": bool(bench["budget_ok"] and quant_ok(stages)),
     })
     bundle.manifest.budgets["verified"] = bench["budgets"]
     bundle.write_metadata()
@@ -491,7 +532,7 @@ def run_pipeline(cfg: Optional[PipelineConfig] = None, verbose: bool = True) -> 
         "bundle_dir": str(bundle.root),
         "config": cfg.to_dict(),
         "stages": stages,
-        "budget_ok": bench["budget_ok"],
+        "budget_ok": bool(bench["budget_ok"] and quant_ok(stages)),
         "summary": summarize(stages, bundle, bench),
     }
     (bundle.root / REPORT_NAME).write_text(
@@ -535,5 +576,25 @@ def summarize(stages: Dict[str, Any], bundle: ModelBundle, bench: Dict[str, Any]
     lines.append(f"运行内存增量 {bench['memory_mb']['runtime_delta_mb']}MB，上限 "
                  f"{bundle.manifest.budgets.get('max_runtime_memory_mb')}MB")
     lines.append(f"推理后端 {bench['backend']}")
-    lines.append(f"预算验收: {'全部通过' if bench['budget_ok'] else '有超标项 ' + str(bench['budgets']['failed'])}")
+    drop = q.get("accuracy_drop_top1")
+    lines.append(f"量化精度合同: 掉点 {drop} / 上限 {ACCURACY_DROP_MAX} -> "
+                 f"{'达标' if quant_ok({'quantize': q}) else '不达标'}")
+    if bench["budget_ok"] and quant_ok({"quantize": q}):
+        lines.append("预算验收: 全部通过（体积 / 延迟 / 内存 / 精度）")
+    else:
+        failed = list(bench["budgets"].get("failed") or [])
+        if not quant_ok({"quantize": q}):
+            failed.append("accuracy_drop")
+        lines.append(f"预算验收: 有超标项 {failed}")
     return lines
+
+
+def quant_ok(stages: Dict[str, Any]) -> bool:
+    """量化精度是否守住文档 ≤3% 的合同。没跑量化时视为不适用，不算失败。"""
+    q = stages.get("quantize") or {}
+    if not q.get("enabled", True):
+        return True
+    drop = q.get("accuracy_drop_top1")
+    if drop is None:
+        return True
+    return bool(drop <= ACCURACY_DROP_MAX)

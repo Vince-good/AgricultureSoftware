@@ -21,8 +21,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-from ..config import (LATENCY_MAX_S, MODEL_SIZE_MAX_MB, QUANT_CALIBRATION_SAMPLES,
-                      RUNTIME_MEMORY_MAX_MB)
+from ..config import (ACCURACY_DROP_MAX, LATENCY_MAX_S, MODEL_SIZE_MAX_MB,
+                      QUANT_CALIBRATION_SAMPLES, RUNTIME_MEMORY_MAX_MB)
 from ..eval.metrics import summarize
 
 
@@ -307,8 +307,8 @@ def quantize_and_verify(fp32_onnx: Path | str, int8_onnx: Path | str,
             "ok": report.int8_size_mb <= max_model_mb,
         },
         "accuracy_drop": {
-            "value": report.accuracy_drop_top1, "limit": 0.03,
-            "ok": report.accuracy_drop_top1 <= 0.03,
+            "value": report.accuracy_drop_top1, "limit": ACCURACY_DROP_MAX,
+            "ok": report.accuracy_drop_top1 <= ACCURACY_DROP_MAX,
         },
         "latency": {
             "value_ms": report.latency_int8_ms, "limit_ms": max_latency_s * 1000.0,

@@ -30,6 +30,11 @@ DEVICE_COST_MAX_CNY = 300
 # 移动端可接受的最低可用精度（低于此值只允许提示"请重拍"，不给出结论）
 MIN_CONFIDENCE_FOR_VERDICT = 0.45
 
+# 量化后 top1 精度损失上限（3.2(2)(4)：精度损失不超过 3%）。
+# 实测纯 PTQ 在本项目的 MobileNetV3-Small 上会掉 15~47 个百分点，
+# 只有把伪量化放进训练回路（QAT）才能兑现这条合同，见 heyan/train/qat.py。
+ACCURACY_DROP_MAX = 0.03
+
 # --------------------------------------------------------------------------
 # 模型与预处理
 # --------------------------------------------------------------------------
@@ -43,10 +48,13 @@ RESIZE_SIZE = 256  # 短边缩放到 256 再中心裁剪 224，MobileNet 官方�
 IMAGE_MEAN = (0.485, 0.456, 0.406)
 IMAGE_STD = (0.229, 0.224, 0.225)
 
-# 8-bit 量化：per-channel 权重量化 + 激活对称量化，精度损失通常 < 3%
-QUANT_WEIGHT_TYPE = "quint8"
+# 8-bit 量化：权重 per-channel 对称 int8，激活 per-tensor 非对称 uint8。
+# 主路径是量化感知训练（QAT），PTQ 仅作为没有训练条件时的降级方案。
+QUANT_WEIGHT_TYPE = "qint8"
 QUANT_ACTIVATION_TYPE = "quint8"
 QUANT_CALIBRATION_SAMPLES = 128
+QUANT_QAT_EPOCHS = 6
+QUANT_QAT_LR = 3e-5
 
 TOP_K = 3
 

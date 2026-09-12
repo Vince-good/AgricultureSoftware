@@ -146,7 +146,7 @@ def _attach_head(model: nn.Module, head: nn.Module) -> None:
 # 微调策略（文档 3.2(3)：小样本条件下的参数高效微调）
 # --------------------------------------------------------------------------
 
-STRATEGIES = ("linear_probe", "bitfit", "partial", "full", "recover")
+STRATEGIES = ("linear_probe", "bitfit", "partial", "full", "recover", "qat")
 
 
 def apply_strategy(model: nn.Module, strategy: str, unfreeze_blocks: int = 3) -> List[str]:
@@ -164,6 +164,16 @@ def apply_strategy(model: nn.Module, strategy: str, unfreeze_blocks: int = 3) ->
         for name, p in (head.named_parameters() if head is not None else []):
             p.requires_grad = True
             unfrozen.append(f"head.{name}")
+
+    if strategy == "qat":
+        # 量化感知训练：全网权重都要能微调，否则模型没法适应 8-bit 网格。
+        # 学习率由调用方压到很低（backbone 3e-5 量级），小样本下不至于洗掉预训练知识。
+        for name, module in model.named_modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear, nn.BatchNorm2d, nn.BatchNorm1d)):
+                for p in module.parameters():
+                    p.requires_grad = True
+                unfrozen.append(name)
+        return sorted(set(unfrozen))
 
     if strategy == "bitfit":
         # 只更新偏置与 BN 统计量：小样本下最不容易过拟合
