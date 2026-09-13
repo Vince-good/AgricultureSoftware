@@ -25,8 +25,12 @@ def benchmark(bundle_dir):
 
 
 def test_model_size_budget(benchmark):
-    total = benchmark["model_size"]["total_mb"]
-    assert total <= config.MODEL_SIZE_MAX_MB
+    size = benchmark["model_size"]
+    # 20MB 卡的是"设备上实际要装的那一个文件"，不是包里所有产物的总和：
+    # FP32 只是训练对照，便携 npz 只是退路，一台设备只会用其中一个。
+    assert size["deployed_mb"] <= config.MODEL_SIZE_MAX_MB
+    assert size["deployed_kind"] == "int8"
+    assert size["all_models_mb"] >= size["deployed_mb"]
 
 
 def test_latency_budget(benchmark):

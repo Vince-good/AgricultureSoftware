@@ -275,15 +275,36 @@ class AppState:
         }
 
     def classes(self) -> List[Dict[str, Any]]:
-        """类别清单（含图标与作物），前端据此渲染图标与筛选项。"""
+        """类别清单（含图标与作物），前端据此渲染图标、筛选项与图例。
+
+        列表顺序按作物分组、兜底类垫底，是给人看的；模型下标另走 model_index 字段，
+        一律取自模型包里的 labels.json。assets/taxonomy.json 的 index 是展示序，
+        和模型 logits 不是同一套，留一个叫 index 的歧义字段早晚有人拿它去解释模型输出。
+        这里只读 JSON，不会顺带把模型加载起来。
+        """
         from ..classes import load_taxonomy
 
-        tax = load_taxonomy()
+        model_index = self._model_index_map()
         return [{
-            "id": c.id, "index": c.index, "crop": c.crop, "stress": c.stress,
+            "id": c.id, "model_index": model_index.get(c.id, c.index),
+            "crop": c.crop, "stress": c.stress,
             "name_zh": c.name_zh, "name_en": c.name_en, "icon": c.icon,
             "is_fallback": c.is_fallback,
-        } for c in tax]
+        } for c in load_taxonomy()]
+
+    def _model_index_map(self) -> Dict[str, int]:
+        """class_id -> 模型 logits 下标，以模型包内的 labels.json 为准。"""
+        if self._engine is not None:
+            return {c.id: int(c.index) for c in self._engine.taxonomy}
+        if self.bundle_path is None:
+            return {}
+        from ..core.bundle import ModelBundle
+
+        try:
+            tax = ModelBundle.load(self.bundle_path).taxonomy
+        except Exception:  # noqa: BLE001 - 包读不动就别拖累界面启动
+            return {}
+        return {c.id: int(c.index) for c in tax} if tax is not None else {}
 
     def severities(self) -> List[Dict[str, Any]]:
         from ..advice import load_advisory

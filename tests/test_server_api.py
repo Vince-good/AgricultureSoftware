@@ -35,6 +35,22 @@ def test_bootstrap_contract(client):
         assert key in body["i18n"], key
 
 
+def test_class_model_index_comes_from_bundle(client, bundle_dir):
+    """界面上的模型下标必须和 bundle 里的 labels.json 一致。
+
+    assets/taxonomy.json 是按作物分组的展示序，labels.json 才是训练序，
+    两边同一个类的下标并不相同。谁要是拿展示序去解释模型 logits，
+    识别结果会整片张冠李戴，而且从界面上完全看不出来。
+    """
+    labels = json.loads((bundle_dir / "labels.json").read_text(encoding="utf-8"))
+    expected = {c["id"]: c["index"] for c in labels["classes"]}
+    classes = client.get("/api/bootstrap").get_json()["classes"]
+    assert {c["id"]: c["model_index"] for c in classes} == expected
+    # 展示序仍按作物分组、兜底类垫底，不被模型下标带跑
+    assert [c["id"] for c in classes][-1] == "unusable"
+    assert "index" not in classes[0]
+
+
 def test_recognize_and_voice(client, demo_image):
     data = {"file": (io.BytesIO(demo_image.read_bytes()), "leaf.jpg")}
     resp = client.post("/api/recognize?lang=zh", data=data,
