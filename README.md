@@ -92,11 +92,40 @@ python -m heyan.cli build --voice-langs zh,en --pack-zip
 > Windows 上默认端口 8765 常被输入法占用（`WinError 10013`），`serve` 会自动往后找空闲端口，
 > 以终端打印的地址为准。
 
+## 让别人也能打开
+
+**同一个局域网**（合作社办公室、田边同一台路由器）：
+
+```powershell
+python -m heyan.cli serve --lan --port 8080
+```
+
+`--lan` 绑到 0.0.0.0，并打印出 `http://172.20.10.2:8080` 这样真能打开的地址。
+手机要用页内实时取景需要 HTTPS：先 `python tools/make_dev_cert.py` 生成自签证书，
+再带 `--ssl-cert/--ssl-key`，或直接用 `tools\serve_lan.ps1 -Https -OpenFirewall`。
+
+**公网**（人在外地、跨网络）走内网穿透：
+
+```powershell
+python -m heyan.cli tunnel --port 8080
+```
+
+它同时起服务和隧道，最后打印一条可直接发出去的分享链接，形如
+`https://xxxx.trycloudflare.com/?token=口令`；窗口开着链接才有效，`Ctrl+C` 一起关。
+客户端按 cloudflared、ngrok、cpolar 的顺序自动探测：cloudflared 免注册，
+把 `cloudflared-windows-amd64.exe` 丢进 `artifacts/bin/` 即可；ngrok 和 cpolar
+要先注册拿 authtoken，国内网络通常 cpolar 更稳。`--client` 可以点名。
+
+公网模式下记录库对拿到链接的人完全敞开，所以 `tunnel` 强制三件事：只监听
+127.0.0.1、必须有访问口令（不给就自动生成）、开限流与公网加固头。
+细节和免费档的如实限制见 `docs/operations.md` 的 3.2 节。演示完就关，别长期挂着。
+
 ## 命令一览
 
 | 命令 | 作用 |
 | --- | --- |
-| `serve` | 启动本地 Web 界面（PWA，可离线缓存） |
+| `serve` | 启动本地 Web 界面（PWA，可离线缓存）；`--lan` 开放局域网，`--tunnel` 进公网加固模式 |
+| `tunnel` | 内网穿透：同时起服务和 cloudflared/ngrok/cpolar，打印可分享的公网链接 |
 | `recognize` | 单张图离线识别 |
 | `build` | 完整流水线：微调 → 蒸馏 → 剪枝 → QAT 量化 → 打包 → 基准测试 |
 | `demo-data` | 生成合成演示数据集 |

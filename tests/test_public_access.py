@@ -85,6 +85,28 @@ def test_query_token_sets_cookie_and_cleans_url():
     assert client.get("/api/health").status_code == 200
 
 
+def test_public_mode_trusts_proxy_scheme_so_redirects_stay_https():
+    """隧道在服务商那边终止 TLS，不认 X-Forwarded-Proto 就会把人从 https 甩回 http。"""
+    client = _mini_app(token=TOKEN, public=True).test_client()
+    resp = client.get(f"/?{guard.TOKEN_QUERY}={TOKEN}",
+                      headers={**HTML, "X-Forwarded-Proto": "https",
+                               "X-Forwarded-For": "203.0.113.7"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"].startswith("https://"), "跳转必须留在 https"
+    assert guard.TOKEN_QUERY not in resp.headers["Location"], "口令仍要从地址里摘掉"
+    assert "secure" in resp.headers["Set-Cookie"].lower(), "https 下 cookie 要带 Secure"
+
+
+def test_non_public_mode_ignores_spoofed_proxy_scheme():
+    """回环/局域网直连时不该信代理头，否则一个头就能篡改跳转和 cookie 属性。"""
+    client = _mini_app(token=TOKEN).test_client()
+    resp = client.get(f"/?{guard.TOKEN_QUERY}={TOKEN}",
+                      headers={**HTML, "X-Forwarded-Proto": "https"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"].startswith("http://")
+    assert "secure" not in resp.headers["Set-Cookie"].lower()
+
+
 def test_wrong_token_gets_gate_page_in_browser_but_json_for_api():
     app = _mini_app(token=TOKEN)
     client = app.test_client()
@@ -211,6 +233,13 @@ CPOLAR_LOG = '''2026/09/15 10:11:12 Init cpolar client with authtoken...
 '''
 
 
+CLOUDFLARED_LOG = '''2026-09-15T10:11:12Z INF Thank you for trying Cloudflare Tunnel. Report issues at https://github.com/cloudflare/cloudflared/issues/new
+2026-09-15T10:11:12Z INF See https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/
+2026-09-15T10:11:13Z INF Your quick Tunnel has been created! Visit it at (it may take some time to be reachable, it is normal): https://crop-leaf-demo.trycloudflare.com
+2026-09-15T10:11:13Z INF Registered tunnel connection connIndex=0
+'''
+
+
 def test_parse_public_urls_ngrok():
     urls = tunnel.parse_public_urls(NGROK_LOG)
     assert urls == ["https://a1b2-123-45.ngrok-free.app"]
@@ -226,6 +255,41 @@ def test_parse_public_urls_dedupes_and_handles_empty():
     assert tunnel.parse_public_urls(None) == []
     twice = CPOLAR_LOG + CPOLAR_LOG
     assert tunnel.parse_public_urls(twice) == ["https://abcd1234.r6.cn"]
+
+
+def test_parse_public_urls_cloudflared_needs_an_exact_match():
+    urls = tunnel.parse_public_urls(CLOUDFLARED_LOG, "cloudflared")
+    assert urls == ["https://crop-leaf-demo.trycloudflare.com"]
+
+    # 不点名客户端时黑名单滤不掉 GitHub/文档链接 —— 这正是白名单存在的理由
+    loose = tunnel.parse_public_urls(CLOUDFLARED_LOG)
+    assert any("github.com" in u or "developers.cloudflare.com" in u for u in loose)
+
+
+def test_cloudflared_api_host_is_never_handed_out_as_a_share_url():
+    """实测踩到的坑：隧道没建起来时，日志里唯一的 https 地址是 api.trycloudflare.com。
+
+    分享链接是带着访问口令的，认错域名等于把口令送给别人，所以这里必须认不出来，
+    让 run() 走失败分支打印日志，而不是高高兴兴发一个错链接。
+    """
+    failed = ('2026-09-15T13:57:05Z INF Requesting new quick Tunnel on trycloudflare.com...\n'
+              'failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": '
+              'context deadline exceeded (Client.Timeout exceeded while awaiting headers)\n')
+    assert tunnel.parse_public_urls(failed, "cloudflared") == []
+    assert tunnel.parse_public_urls(failed) == [], "不点名客户端时黑名单也得拦住 API 端点"
+    assert tunnel.failure_hint(failed) == "failed to request quick tunnel"
+
+
+def test_failure_hint_spots_ngrok_missing_authtoken():
+    assert tunnel.failure_hint("ERR_NGROK_105: Your account is not configured") == "err_ngrok_"
+    assert tunnel.failure_hint("INF Registered tunnel connection connIndex=0") is None
+    assert tunnel.failure_hint(None) is None
+
+
+def test_clients_order_prefers_the_zero_signup_one():
+    assert tunnel.CLIENTS[0] == "cloudflared", "免注册的那家应该先被自动探测到"
+    assert set(tunnel.CLIENTS) == {"cloudflared", "ngrok", "cpolar"}
+    assert tunnel.INSTALL_HINTS["cloudflared"], "每家都得给安装指引"
 
 
 def test_build_command_matches_each_client_syntax():
@@ -245,6 +309,19 @@ def test_build_command_matches_each_client_syntax():
 
     with pytest.raises(ValueError, match="不支持"):
         tunnel.build_command("frp", "frpc.exe", 8080)
+
+
+def test_build_command_cloudflared_quick_tunnel():
+    cmd = tunnel.build_command("cloudflared", "cloudflared.exe", 8091)
+    assert cmd[1] == "tunnel"
+    assert "--url" in cmd and "http://127.0.0.1:8091" in cmd, "必须指回环，别把服务敞到网卡上"
+    assert "--no-autoupdate" in cmd, "跑着的隧道不该被自动更新打断"
+
+    with_region = tunnel.build_command("cloudflared", "cloudflared.exe", 8091, region="ap")
+    assert "--region" in with_region and "ap" in with_region
+
+    with pytest.raises(ValueError, match="随机域名"):
+        tunnel.build_command("cloudflared", "cloudflared.exe", 8091, subdomain="heyan")
 
 
 def test_find_client_prefers_path_then_local_bin(monkeypatch, tmp_path):

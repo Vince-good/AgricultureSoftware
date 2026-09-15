@@ -84,7 +84,7 @@ class RateLimiter:
 def client_source() -> str:
     """取"谁在请求"。
 
-    隧道模式下服务只监听回环，唯一的对端就是 ngrok/cpolar 进程，
+    隧道模式下服务只监听回环，唯一的对端就是 cloudflared/ngrok/cpolar 进程，
     所以 X-Forwarded-For 的第一跳是可信的真实客户端 IP；直连时退化成
     remote_addr。令牌也参与区分，避免同一出口 IP 下多人互相挤配额。
     """
@@ -195,6 +195,16 @@ def install(app, token: Optional[str] = None, public: bool = False,
     }
     app.config["HEYAN_GUARD"] = cfg
     app.config["HEYAN_PUBLIC"] = bool(public)
+
+    if bool(public) and not app.config.get("HEYAN_PROXY_FIXED"):
+        # 隧道在服务商那边终止 TLS，Flask 自己看到的 scheme 永远是 http。
+        # 不认 X-Forwarded-Proto，?token= 的 302 就会把人从 https 甩回 http，
+        # cookie 也拿不到 Secure 标志。只信 for/proto，不信 host：
+        # 跳转目标的主机名继续由真实 Host 头决定，不给伪造域名的机会。
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+        app.config["HEYAN_PROXY_FIXED"] = True
 
     @app.before_request
     def _guard():  # noqa: ANN202 - Flask 钩子

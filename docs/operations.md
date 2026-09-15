@@ -64,8 +64,9 @@ python -m heyan.cli serve --port 8080
 Press CTRL+C to quit
 ```
 
-`Ctrl+C` 停止。换端口就改 `--port`；要局域网内其他设备访问，加 `--host 0.0.0.0`
-（注意这会暴露识别记录接口，只在可信内网用）。
+`Ctrl+C` 停止。换端口就改 `--port`。要让本机之外的设备也能打开，看下面 3.1（局域网）
+和 3.2（公网）。别再直接 `--host 0.0.0.0` 裸奔：那会把带姓名/村/地块的识别记录
+接口和删除接口一起敞开，且没有任何鉴权。
 
 > 默认端口 8765 在 Windows 上常被输入法占用（`WinError 10013`），`serve` 会自动往后找空闲端口，
 > **以终端打印的地址为准**。
@@ -85,6 +86,110 @@ python -m heyan.cli benchmark         # 复测体积/延迟/内存，越线非�
 ```
 
 再加一条浏览器/命令行请求：`GET /api/integrity` 看记录库哈希链是否完好。
+
+### 3.1 局域网访问
+
+```powershell
+python -m heyan.cli serve --lan --port 8080
+python -m heyan.cli serve --lan --port 8080 --access-token 自己定一个口令
+```
+
+`--lan` 做三件事：绑 0.0.0.0、探测本机局域网 IPv4、打印 `http://172.20.10.2:8080`
+这种真能点开的地址（不会打印 0.0.0.0，那个地址打不开）。手机连不上多半是防火墙没放行，
+用管理员权限跑一次封装好的脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\serve_lan.ps1 -Port 8080 -OpenFirewall
+powershell -ExecutionPolicy Bypass -File tools\serve_lan.ps1 -RemoveFirewallRule
+```
+
+没有管理员权限时脚本不会失败，它会把该粘的 `netsh` 命令打印出来。
+
+手机浏览器在 http 页面里拿不到摄像头权限（非安全上下文），页内实时取景会退化成
+"从相册选图上传"，识别本身照常。要取景就补 HTTPS：
+
+```powershell
+python tools\make_dev_cert.py
+python -m heyan.cli serve --lan --port 8080 --ssl-cert artifacts\certs\heyan-lan.crt --ssl-key artifacts\certs\heyan-lan.key
+```
+
+自签证书每台设备首次访问都要手动信任一次（"高级 - 继续前往"），这是自签的固有代价。
+证书目录里自带 `.gitignore`，私钥不会被提交。
+
+### 3.2 公网访问（内网穿透）
+
+田间主机多半挂在 4G 路由或家宽 NAT 后面，没有公网 IP，端口映射无从下手。隧道是从
+内网主动往外的长连接，不用动路由器、不用找运营商要公网地址：
+
+```powershell
+python -m heyan.cli tunnel --port 8080
+python -m heyan.cli tunnel --port 8080 --client cpolar
+python -m heyan.cli tunnel --port 8080 --access-token 我的口令 --subdomain heyan-demo
+```
+
+输出里那条 `https://<域名>/?token=<口令>` 就是能直接发出去的分享链接。窗口必须开着，
+`Ctrl+C` 会把服务和隧道一起收掉。口令也可以用环境变量 `HEYAN_ACCESS_TOKEN` 传，
+免得留在命令历史里。
+
+三家客户端，自动探测顺序就是下表顺序：
+
+| 客户端 | 要注册吗 | 固定域名 | 备注 |
+| --- | --- | --- | --- |
+| cloudflared | 不用 | 不能 | 下载 exe 丢进 `artifacts\bin\` 即可，最适合临时演示 |
+| ngrok | 要 authtoken | 付费档 | 免费档会给浏览器插一张警告页，前端已带跳过头 |
+| cpolar | 要 authtoken | 付费档 | 国内直连质量通常最好 |
+
+客户端装在 PATH 里或直接放进 `artifacts\bin\`（该目录已被 git 忽略）都能被找到。
+authtoken 是一次性配置：
+
+```powershell
+ngrok config add-authtoken <你的TOKEN>
+cpolar authtoken <你的TOKEN>
+```
+
+**安全模型**（`tunnel` 强制执行，不给口令就自动生成一个）：
+
+- 服务只监听 127.0.0.1，由隧道客户端从本机连进来，网卡上不额外开口子；
+- 没带口令时：浏览器请求返回一张口令页，`/api/*` 返回 401 `auth_required`，
+  静态资源返回干净的 401（不会把 HTML 口令页塞给 `sw.js`）；
+- 口令三种传法：`?token=`（自动换成 HttpOnly cookie，并把地址里的口令摘掉再 302）、
+  `X-HeYan-Token` 头、cookie；cookie 有效期 12 小时；
+- 限流只在公网模式生效：识别 12 次/分钟、其余 240 次/分钟，按来源计，超了返回 429
+  带 `Retry-After`；
+- 加固头：nosniff、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、
+  `X-Robots-Tag: noindex`，记录与导出接口一律 `no-store`；
+- 公网模式下 `/api/health` 只报模型包名不报完整路径，`/api/bootstrap` 不吐本机目录，
+  报错也不带 `detail`；
+- 隧道那边终止 TLS，服务靠 `X-Forwarded-Proto` 认出外层是 https，
+  跳转不会把人甩回 http，cookie 也能正确带上 `Secure`。
+
+**如实告知的限制**：
+
+- 免费档域名每次重启都变，发出去的旧链接随之失效；
+- 有带宽和并发上限，几十人同时刷会卡；
+- 隧道服务商能看到全部过路流量：HTTPS 只在浏览器到服务商之间加密，服务商到本机
+  这一跳是它自己解开的。涉密数据不要走公网；
+- 拿到链接的人就能查看和删除本机全部识别记录。别把链接发到公开群里，更别挂着不管，
+  演示完 `Ctrl+C`；
+- cloudflared 的免费快速隧道没有可用性保证。实测会遇到
+  `failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": context deadline exceeded`，
+  这时 `tunnel` 打印日志尾部并以退出码 5 结束，而不是发一个认错的链接（分享链接里
+  带着口令，认错域名等于把口令送给别人）。重跑一次通常就好。
+
+退出码：0 正常结束，2 参数与客户端能力冲突，3 没找到隧道客户端，4 服务没起来，
+5 隧道没给出公网地址。
+
+排查：
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 没找到可用的隧道客户端 | 没装或没放进 `artifacts\bin\`，按打印出来的三步指引装一个 |
+| 退出码 5，日志有 `ERR_NGROK_105` | authtoken 没配，`ngrok config add-authtoken <TOKEN>` |
+| 退出码 5，日志有 `failed to request quick Tunnel` | cloudflared 快速隧道超时/限流，重跑或换 cpolar |
+| 退出码 4 | 服务本身没起来，看同目录 `tunnel-server-*.log` |
+| 链接能打开但一直要口令 | cookie 过期（12 小时）或换了浏览器，用完整分享链接重开 |
+| 页面开了但摄像头用不了 | 隧道给的是 HTTPS，本该可用；若走局域网 http 见 3.1 |
+| 对方打开先看到一张 ngrok 警告页 | 免费档行为，点 Visit Site 即可，前端已带跳过头 |
 
 ## 4. 模型包分发（SD 卡 / U 盘部署）
 

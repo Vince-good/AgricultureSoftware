@@ -11,7 +11,7 @@
     heyan voicepack    离线预渲染语音包
     heyan serve        启动本地 Web 界面（拍照→识别→语音播报）
                        加 --lan 让同一局域网的其他电脑/手机也能打开
-    heyan tunnel       内网穿透：起服务 + 起 ngrok/cpolar，给出一个公网链接
+    heyan tunnel       内网穿透：起服务 + 起 cloudflared/ngrok/cpolar，给出一个公网链接
     heyan export       导出识别记录（JSON/CSV，可写 U 盘）
     heyan outbox       查看/冲刷对接发件箱（保险/补贴/农资）
     heyan schema       写出全部 JSON Schema 供对接方审阅
@@ -392,13 +392,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("tunnel",
-                       help="内网穿透：同时起服务和 ngrok/cpolar，打印可直接分享的公网链接")
+                       help="内网穿透：同时起服务和 cloudflared/ngrok/cpolar，打印可直接分享的公网链接")
     p.add_argument("--port", type=int, default=8080)
-    p.add_argument("--client", choices=["ngrok", "cpolar"],
-                   help="指定隧道客户端，默认自动探测装了哪个")
+    p.add_argument("--client", choices=["cloudflared", "ngrok", "cpolar"],
+                   help="指定隧道客户端，默认自动探测（cloudflared 免注册，ngrok/cpolar 要 authtoken）")
     p.add_argument("--access-token", help="访问口令；不给就自动生成并打印出来")
-    p.add_argument("--subdomain", help="固定二级域名（要账号套餐支持）")
-    p.add_argument("--region", help="隧道节点区域，如 ngrok 的 ap、cpolar 的 cn")
+    p.add_argument("--subdomain", help="固定二级域名（要账号套餐支持；cloudflared 不支持）")
+    p.add_argument("--region", help="隧道节点区域，如 ngrok 的 ap、cpolar 的 cn、cloudflared 的 us/eu/ap")
     p.add_argument("--bundle")
     p.add_argument("--lang", default="zh")
     p.add_argument("--timeout", type=float, default=120.0,
