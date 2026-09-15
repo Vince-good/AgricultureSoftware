@@ -107,11 +107,15 @@ python -m heyan.cli serve --lan --port 8080
 **公网**（人在外地、跨网络）走内网穿透：
 
 ```powershell
-python -m heyan.cli tunnel --port 8080
+tools\share_public.bat              # 双击即可，自动挑一个空闲端口
+python -m heyan.cli tunnel --port 8080   # 等价的手敲命令
 ```
 
 它同时起服务和隧道，最后打印一条可直接发出去的分享链接，形如
 `https://xxxx.trycloudflare.com/?token=口令`；窗口开着链接才有效，`Ctrl+C` 一起关。
+`share_public` 会从 8080 起找第一个空闲端口，所以本机已经开着一个 `serve` 也不冲突；
+手敲 `tunnel` 时如果端口被占，它会直接退出（码 7）而不是把公网地址接到那个没做加固的
+旧进程上——先 `Ctrl+C` 停掉旧的，或者 `tunnel --port 8081`。`-DryRun` 只打印将执行的命令。
 客户端按 cloudflared、ngrok、cpolar 的顺序自动探测：cloudflared 免注册，
 把 `cloudflared-windows-amd64.exe` 丢进 `artifacts/bin/` 即可；ngrok 和 cpolar
 要先注册拿 authtoken，国内网络通常 cpolar 更稳。`--client` 可以点名。

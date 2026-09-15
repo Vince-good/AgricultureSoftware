@@ -55,14 +55,20 @@ _NOISE_HOSTS = {
     "ngrok.com", "dashboard.ngrok.com", "api.ngrok.com", "login.ngrok.com",
     "cpolar.com", "www.cpolar.com", "dashboard.cpolar.com", "cpolar.cn",
     "trycloudflare.com", "api.trycloudflare.com", "www.trycloudflare.com",
+    "ngrok-agent.com", "update.ngrok-agent.com", "connect.ngrok-agent.com",
 }
-# 光靠黑名单不够的就上精确特征。分享链接里是带着访问口令的，
-# 认错一个域名就等于把口令交给别人，所以这里宁可认不出来（run() 会报错并附日志），
-# 也绝不猜。cloudflared 的快速隧道域名固定是几个单词用连字符拼起来的
-# （如 eagle-dramatically-conflicts-flu.trycloudflare.com），
-# 而它自己的 API 端点 api.trycloudflare.com 没有连字符，正好能分开。
+# 黑名单是堵不完的，这里改用正向特征：只认客户端明确宣布"隧道建好了"的那一行。
+# 理由很实在 —— 分享链接里带着访问口令，认错一个域名就等于把口令交给别人。
+# 实测踩过两次：cloudflared 日志里的 api.trycloudflare.com（自动申请域名的端点），
+# 和 ngrok 日志里的 update.ngrok-agent.com（自动更新检查），两个都不是隧道地址。
+# 宁可认不出来（run() 会打印日志尾部并以退出码 5 结束），也绝不猜。
 _CLIENT_URL_RE: Dict[str, "re.Pattern[str]"] = {
-    "cloudflared": re.compile(r"https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com"),
+    # 快速隧道域名固定是几个单词用连字符拼起来的（eagle-dramatically-conflicts-flu），
+    # 而它自己的 API 端点 api.trycloudflare.com 没有连字符，正好分得开
+    "cloudflared": re.compile(
+        r"(https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)"),
+    "ngrok": re.compile(r'msg="started tunnel"[^\n]*?\burl=(https://[A-Za-z0-9._-]+)'),
+    "cpolar": re.compile(r"Tunnel established at\s+(https://[A-Za-z0-9._-]+)"),
 }
 
 INSTALL_HINTS: Dict[str, List[str]] = {
@@ -145,14 +151,15 @@ def parse_public_urls(text: Optional[str], client: Optional[str] = None) -> List
       ngrok       : `msg="started tunnel" ... url=https://abcd-1234.ngrok-free.app`
       cpolar      : `Tunnel established at https://abcd1234.r6.cn`
 
-    `client` 在 _CLIENT_URL_RE 里时只认精确特征，匹配不到就返回空 —— 这时 run()
-    会打印隧道日志尾部并退出，而不是把一个带口令的错误链接发出去。
+    `client` 在 _CLIENT_URL_RE 里时只认那条"隧道已建立"的正向特征，匹配不到就返回空
+    —— 这时 run() 会打印隧道日志尾部并退出，而不是把一个带口令的错误链接发出去。
+    不点名 client 才退回泛匹配（黑名单过滤），那是给测试和未知客户端留的。
     """
     out: List[str] = []
     strict = _CLIENT_URL_RE.get(client or "")
     if strict:
         for match in strict.finditer(text or ""):
-            url = match.group(0).rstrip(".,;:)\"'")
+            url = match.group(1).rstrip(".,;:)\"'")
             if url not in out:
                 out.append(url)
         return out
@@ -188,6 +195,25 @@ def fetch_ngrok_tunnels(api_base: str = "http://127.0.0.1:4040",
         if url.startswith("https://") and url not in urls:
             urls.append(url)
     return urls
+
+
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    """端口是不是已经被别的进程占着。
+
+    隧道会自己起一个 `serve --tunnel`。要是端口上还挂着一个旧服务，
+    wait_for_server 的健康检查会被那个旧进程应答（哪怕口令不对，401 也算
+    "起来了"），于是公网地址被接到一个没开 ProxyFix、没做硬化的服务上，
+    重定向会掉回 http、Cookie 也少了 Secure。所以起服务之前先探一道。
+    """
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        try:
+            sock.bind((host, int(port)))
+        except OSError:
+            return True
+    return False
 
 
 def wait_for_server(port: int, token: Optional[str] = None, timeout: float = 90.0,
@@ -229,6 +255,10 @@ def _server_command(port: int, token: str, bundle: Optional[str],
 
 
 def _terminate(proc: Optional[subprocess.Popen]) -> None:
+    """收掉子进程。三家隧道客户端都是单进程，terminate/kill 就够了；
+    不用 taskkill /T 是因为它在受限环境下会 Access denied，白等一轮超时。
+    真正会导致隧道进程收不掉的是"永远等不到公网地址却卡在 wait()"，
+    那条路由 _CLIENT_URL_RE 的正向匹配和下面的服务存活巡检堵住了。"""
     if proc is None or proc.poll() is not None:
         return
     proc.terminate()
@@ -236,6 +266,10 @@ def _terminate(proc: Optional[subprocess.Popen]) -> None:
         proc.wait(timeout=8)
     except subprocess.TimeoutExpired:
         proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def _read(path: Path) -> str:
@@ -297,6 +331,11 @@ def run(port: int = 8080, client: Optional[str] = None, token: Optional[str] = N
         bundle: Optional[str] = None, lang: str = "zh",
         log_dir: Optional[Path] = None, timeout: float = 120.0) -> int:
     """起服务 + 起隧道，打印能直接发出去的链接；Ctrl+C 时把两个进程都收干净。"""
+    if port_in_use(port):
+        print(f"[tunnel] 端口 {port} 已经被占用，大概是之前的 heyan serve 还在跑。")
+        print(f"[tunnel] 先在那个窗口按 Ctrl+C 停掉它，或者换个端口重跑："
+              f"tunnel --port {int(port) + 1}")
+        return 7
     # 输出常被重定向进日志文件；不开行缓冲的话，公网地址要等进程退出才落盘
     try:
         sys.stdout.reconfigure(line_buffering=True)
@@ -367,7 +406,13 @@ def run(port: int = 8080, client: Optional[str] = None, token: Optional[str] = N
         print(f"[tunnel] 隧道日志 {tunnel_log}")
         print(f"[tunnel] 服务日志 {server_log}")
         print("[tunnel] 保持这个窗口开着；按 Ctrl+C 同时关掉服务和隧道。")
-        tunnel_proc.wait()
+        # 不能干等隧道进程：服务先崩了的话，隧道会变成一个人人可访问的 502，
+        # 而且没人会发现。两边都盯着，谁先死就一起收。
+        while tunnel_proc.poll() is None:
+            if server_proc.poll() is not None:
+                print("[tunnel] 服务进程已退出，一并关闭隧道。")
+                return 6
+            time.sleep(1.0)
         return 0
     except KeyboardInterrupt:
         print("\n[tunnel] 收到中断，正在关闭…")

@@ -122,10 +122,15 @@ python -m heyan.cli serve --lan --port 8080 --ssl-cert artifacts\certs\heyan-lan
 内网主动往外的长连接，不用动路由器、不用找运营商要公网地址：
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File tools\share_public.ps1        # 或直接双击 tools\share_public.bat
 python -m heyan.cli tunnel --port 8080
 python -m heyan.cli tunnel --port 8080 --client cpolar
 python -m heyan.cli tunnel --port 8080 --access-token 我的口令 --subdomain heyan-demo
 ```
+
+`share_public.ps1` 是 `tunnel` 的一键包装：从 8080 起找第一个空闲端口（本机已经开着
+`serve` 也不会撞上退出码 7），把 `-Client / -Token / -Region / -Bundle` 透传下去，
+`-DryRun` 只打印将执行的命令不真跑。日常演示双击 `.bat` 就够，要固定端口才手敲 `tunnel`。
 
 输出里那条 `https://<域名>/?token=<口令>` 就是能直接发出去的分享链接。窗口必须开着，
 `Ctrl+C` 会把服务和隧道一起收掉。口令也可以用环境变量 `HEYAN_ACCESS_TOKEN` 传，
@@ -176,14 +181,20 @@ cpolar authtoken <你的TOKEN>
   这时 `tunnel` 打印日志尾部并以退出码 5 结束，而不是发一个认错的链接（分享链接里
   带着口令，认错域名等于把口令送给别人）。重跑一次通常就好。
 
-退出码：0 正常结束，2 参数与客户端能力冲突，3 没找到隧道客户端，4 服务没起来，
-5 隧道没给出公网地址。
+退出码：0 正常结束，2 参数与客户端能力冲突（如给 cloudflared 指定 `--subdomain`），
+3 没找到隧道客户端，4 服务没起来，5 隧道没给出公网地址，6 隧道还活着但服务先退了，
+7 端口已被占用（`tunnel` 会自己起服务，撞上还在跑的旧 `serve` 就会把公网地址挂到那个
+没开 `ProxyFix`、没做硬化的进程上，所以直接拒绝启动；停掉旧的或换 `--port`）。
+
+日志落在 `artifacts\logs\` 下，一次运行两份：`tunnel-server-*.log` 是服务，
+`tunnel-<客户端>-*.log` 是隧道。排查失败原因先看后者。
 
 排查：
 
 | 现象 | 原因与处理 |
 | --- | --- |
 | 没找到可用的隧道客户端 | 没装或没放进 `artifacts\bin\`，按打印出来的三步指引装一个 |
+| 退出码 7，提示端口被占用 | 之前的 `serve`/`tunnel` 还在跑，去那个窗口 `Ctrl+C`，或换 `--port` |
 | 退出码 5，日志有 `ERR_NGROK_105` | authtoken 没配，`ngrok config add-authtoken <TOKEN>` |
 | 退出码 5，日志有 `failed to request quick Tunnel` | cloudflared 快速隧道超时/限流，重跑或换 cpolar |
 | 退出码 4 | 服务本身没起来，看同目录 `tunnel-server-*.log` |

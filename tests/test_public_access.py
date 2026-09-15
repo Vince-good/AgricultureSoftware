@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import json
+import socket
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -243,11 +246,13 @@ CLOUDFLARED_LOG = '''2026-09-15T10:11:12Z INF Thank you for trying Cloudflare Tu
 def test_parse_public_urls_ngrok():
     urls = tunnel.parse_public_urls(NGROK_LOG)
     assert urls == ["https://a1b2-123-45.ngrok-free.app"]
+    assert tunnel.parse_public_urls(NGROK_LOG, "ngrok") == urls, "正向特征也得认得出真地址"
 
 
 def test_parse_public_urls_cpolar_and_noise():
     urls = tunnel.parse_public_urls(CPOLAR_LOG)
     assert urls == ["https://abcd1234.r6.cn"], "官网/控制台链接不能当成隧道地址"
+    assert tunnel.parse_public_urls(CPOLAR_LOG, "cpolar") == urls
 
 
 def test_parse_public_urls_dedupes_and_handles_empty():
@@ -255,6 +260,26 @@ def test_parse_public_urls_dedupes_and_handles_empty():
     assert tunnel.parse_public_urls(None) == []
     twice = CPOLAR_LOG + CPOLAR_LOG
     assert tunnel.parse_public_urls(twice) == ["https://abcd1234.r6.cn"]
+
+
+NGROK_UPDATE_NOISE = (
+    't=2026-09-15T22:11:19+0800 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040\n'
+    't=2026-09-15T22:11:19+0800 lvl=warn msg="failed to check for update" obj=updater '
+    'err="Post https://update.ngrok-agent.com/check: dial tcp 127.0.0.1:9: connectex: refused"\n'
+    't=2026-09-15T22:11:23+0800 lvl=eror msg="failed to reconnect session" obj=tunnels.session\n'
+)
+
+
+def test_ngrok_update_endpoint_is_never_mistaken_for_a_tunnel_url():
+    """实测踩到的坑：隧道没建起来时，日志里唯一的 https 地址是自动更新端点。
+
+    泛匹配会把它当成公网地址，于是打印一条带口令的假分享链接（口令就此送给别人），
+    接着卡在等隧道进程退出上永远不返回。必须认不出来。
+    """
+    assert tunnel.parse_public_urls(NGROK_UPDATE_NOISE, "ngrok") == []
+    assert tunnel.parse_public_urls(NGROK_UPDATE_NOISE) == [], "黑名单也得拦住更新端点"
+    assert tunnel.parse_public_urls(NGROK_UPDATE_NOISE + NGROK_LOG, "ngrok") == \
+        ["https://a1b2-123-45.ngrok-free.app"], "噪声在场时仍要认出真地址"
 
 
 def test_parse_public_urls_cloudflared_needs_an_exact_match():
@@ -350,6 +375,16 @@ def test_server_command_forces_tunnel_mode():
     assert "--bundle" in with_bundle  # noqa: SLF001
 
 
+def test_terminate_reaps_the_tunnel_process():
+    """留一个没被收掉的隧道进程，等于留一个没人管的公网入口。"""
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    assert proc.poll() is None
+    tunnel._terminate(proc)  # noqa: SLF001
+    assert proc.poll() is not None
+    tunnel._terminate(proc)  # noqa: SLF001 - 重复调用不该炸
+    tunnel._terminate(None)  # noqa: SLF001
+
+
 def test_fetch_ngrok_tunnels_reads_local_api():
     payload = json.dumps({"tunnels": [
         {"public_url": "http://a1b2.ngrok-free.app"},
@@ -382,6 +417,44 @@ def test_fetch_ngrok_tunnels_reads_local_api():
 def test_fetch_ngrok_tunnels_swallows_absent_api():
     """没起 ngrok 时 4040 端口是空的，这里必须安静返回空列表而不是抛异常。"""
     assert tunnel.fetch_ngrok_tunnels(api_base="http://127.0.0.1:1", timeout=0.5) == []
+
+
+def test_port_in_use_matches_reality():
+    """占着的端口要认出来，空端口不能误报，否则 tunnel 会平白拒绝启动。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        busy = sock.getsockname()[1]
+        assert tunnel.port_in_use(busy) is True
+
+    free = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    free.bind(("127.0.0.1", 0))
+    free_port = free.getsockname()[1]
+    free.close()  # 关掉之后这个端口就该是空的
+    assert tunnel.port_in_use(free_port) is False
+
+
+def test_run_refuses_to_hijack_a_port_someone_else_owns(monkeypatch, capsys):
+    """端口被旧服务占着时必须直接退出 7。
+
+    不拦的话，健康检查会被旧进程应答，公网地址就挂到了一个没开 ProxyFix、
+    没做硬化的服务上——这正是最难查的那种"链接能开但行为不对"。
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        busy = sock.getsockname()[1]
+
+        def _no_spawn(*args, **kwargs):  # 走到这一步就说明检查没生效
+            raise AssertionError("端口被占用时不该再起任何子进程")
+
+        monkeypatch.setattr(tunnel.subprocess, "Popen", _no_spawn)
+        # 故意让 find_client 返回 None：拿到的仍是 7，说明端口检查排在客户端探测之前
+        monkeypatch.setattr(tunnel, "find_client", lambda preferred=None: None)
+        assert tunnel.run(port=busy) == 7
+
+    out = capsys.readouterr().out
+    assert str(busy) in out and "tunnel --port" in out, "要告诉用户换哪个端口"
 
 
 # ------------------------------------------------------------------ 真服务接线
