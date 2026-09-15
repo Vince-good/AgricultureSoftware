@@ -310,6 +310,72 @@
         }
       }
     },
+    "maize_healthy": {
+      "summary_zh": "叶片颜色均匀，没有锈色粉点、长条病斑或黄化。",
+      "window_days": 0,
+      "insurance_claimable": false,
+      "agro_input": { "category_zh": "无需购药", "keywords": [] },
+      "by_severity": {
+        "none": {
+          "actions_zh": ["按平常的肥水管理继续", "每三天巡一次田，重点看心叶和下部叶片"],
+          "actions_en": ["Keep your usual water and fertilizer routine", "Walk the field every three days, check the whorl and lower leaves"],
+          "voice_zh": "玉米正常，不用处理。三天后再看一次新叶。",
+          "voice_yue": "玉米正常，使理。三日之後再睇一次新葉。"
+        }
+      }
+    },
+    "maize_rust": {
+      "summary_zh": "叶片两面散生铁锈色小疱疹，破裂后散出黄褐色粉状孢子。",
+      "window_days": 7,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂", "keywords": ["三唑酮", "戊唑醇", "丙环唑", "吡唑醚菌酯"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["七天内喷一次三唑酮", "摘掉下部病重叶片带出田外", "别偏施氮肥，补一点钾肥"],
+          "actions_en": ["Spray triadimefon within seven days", "Remove heavily infected lower leaves from the field", "Avoid excess nitrogen, add some potash"],
+          "voice_zh": "玉米锈病刚开始。七天内喷一次三唑酮，下部病叶要摘走。",
+          "voice_yue": "玉米銹病啱啱開始。七日之內噴一次三唑酮，下部病葉要摘走。"
+        },
+        "moderate": {
+          "actions_zh": ["立刻喷戊唑醇或丙环唑", "隔十天左右再喷一次", "拍照片带去农技站确认"],
+          "actions_en": ["Spray tebuconazole or propiconazole now", "Repeat in about ten days", "Bring photos to the local extension station"],
+          "voice_zh": "玉米锈病已经扩散。今天喷药，十天后补喷一次。",
+          "voice_yue": "玉米銹病已經擴散。今日噴藥，十日後補噴一次。"
+        },
+        "severe": {
+          "actions_zh": ["当天联系农技站上门看田", "三唑类与甲氧基丙烯酸酯类轮换使用，防抗药性", "拍照留证，可用于保险定损"],
+          "actions_en": ["Contact the extension station the same day", "Rotate triazoles with strobilurins to prevent resistance", "Keep photos as evidence for insurance assessment"],
+          "voice_zh": "玉米锈病很严重。今天就要找农技站，药剂要轮换用，照片留着报保险。",
+          "voice_yue": "玉米銹病好嚴重。今日就要搵農技站，藥劑要輪換用，相片留低報保險。"
+        }
+      }
+    },
+    "maize_northern_leaf_blight": {
+      "summary_zh": "叶片上出现长梭形、灰褐色的大病斑，沿叶脉方向伸展，严重时整叶枯死。",
+      "window_days": 5,
+      "insurance_claimable": true,
+      "agro_input": { "category_zh": "杀菌剂", "keywords": ["苯醚甲环唑", "吡唑醚菌酯", "代森锰锌", "甲基硫菌灵"] },
+      "by_severity": {
+        "mild": {
+          "actions_zh": ["五天内喷一次苯醚甲环唑", "摘掉下部病叶带出田外烧掉", "雨后及时排水，降低田间湿度"],
+          "actions_en": ["Spray difenoconazole within five days", "Remove and burn the lower diseased leaves", "Drain promptly after rain to lower field humidity"],
+          "voice_zh": "玉米大斑病刚开始。五天内喷一次苯醚甲环唑，病叶要摘走。",
+          "voice_yue": "玉米大斑病啱啱開始。五日之內噴一次苯醚甲環唑，病葉要摘走。"
+        },
+        "moderate": {
+          "actions_zh": ["立刻喷吡唑醚菌酯加代森锰锌", "隔七到十天再喷一次", "停止偏施氮肥，改施钾肥"],
+          "actions_en": ["Spray pyraclostrobin plus mancozeb now", "Repeat in seven to ten days", "Stop excess nitrogen, apply potash instead"],
+          "voice_zh": "玉米大斑病已经扩散。今天喷药，十天后再喷一次，氮肥要停。",
+          "voice_yue": "玉米大斑病已經擴散。今日噴藥，十日後再噴一次，氮肥要停。"
+        },
+        "severe": {
+          "actions_zh": ["当天联系农技站上门看田", "清除田间病残体，别留在地里过冬", "拍照留证，可用于保险定损"],
+          "actions_en": ["Contact the extension station the same day", "Clear infected crop residue so it cannot overwinter", "Keep photos as evidence for insurance assessment"],
+          "voice_zh": "玉米大斑病很严重。今天就要找农技站，病残体要清走，照片留着报保险。",
+          "voice_yue": "玉米大斑病好严重。今日就要搵農技站，病殘體要清走，相片留低報保險。"
+        }
+      }
+    },
     "unusable": {
       "summary_zh": "画面里没有清晰叶片，可能是土壤、杂草或拍糊了。",
       "window_days": 0,

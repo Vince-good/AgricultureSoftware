@@ -9,7 +9,10 @@
  *   - 不缓存模型文件。onnxruntime 在服务端读磁盘，浏览器碰不到。
  */
 
-const VERSION = 'heyan-v1.0.0';
+// 预缓存里任何文件变了都要抬这个号（模型包升级、或界面自身改动都算）：
+// VERSION 决定缓存名，不抬的话装过旧版的浏览器会继续从旧 shell 里取
+// app.js/index.html —— 上次就因此显示过 14 类。
+const VERSION = 'heyan-v1.1.1';
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 

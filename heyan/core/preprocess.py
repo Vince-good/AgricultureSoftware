@@ -18,6 +18,20 @@ PathLike = Union[str, Path]
 ImageArray = np.ndarray  # uint8, HWC, RGB
 
 
+def _bilinear():
+    """取 Pillow 的双线性采样常量。
+
+    Pillow 9.1 起这些常量搬进了 `Image.Resampling`，旧版仍挂在 `Image` 顶层，
+    这里两边都兜住。单独抽成函数还有一个原因：`_pil_to_array` / `_pil_resize`
+    都是模块级函数，各自作用域里并没有 `Image` 这个名字，早先在这里直接写
+    `Image.BILINEAR` 会抛 NameError —— 而它只在"长边 > max_side"时才被求值，
+    于是表现为"合成小图一切正常、手机直出的大照片全部加载失败"。
+    """
+    from PIL import Image
+
+    return getattr(Image, "Resampling", Image).BILINEAR
+
+
 def read_image(path: PathLike, max_side: Optional[int] = 1280) -> ImageArray:
     """读取图片为 uint8 HWC RGB。
 
@@ -50,7 +64,7 @@ def _pil_to_array(im, max_side: Optional[int]) -> ImageArray:
     im = ImageOps.exif_transpose(im)  # 手机竖拍照片的方向藏在 EXIF 里
     im = im.convert("RGB")
     if max_side and max(im.size) > max_side:
-        im.thumbnail((max_side, max_side), Image.BILINEAR)
+        im.thumbnail((max_side, max_side), _bilinear())
     return np.asarray(im, dtype=np.uint8)
 
 
@@ -58,7 +72,7 @@ def _pil_resize(img: ImageArray, size: Tuple[int, int]) -> ImageArray:
     from PIL import Image
 
     im = Image.fromarray(img)
-    im = im.resize(size, Image.BILINEAR)
+    im = im.resize(size, _bilinear())
     return np.asarray(im, dtype=np.uint8)
 
 

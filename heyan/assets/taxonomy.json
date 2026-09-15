@@ -1,11 +1,12 @@
 {
   "schema_version": "1.0",
   "region": "广东省粤东西北农业区",
-  "description": "小农户作物隐形胁迫识别类别体系。覆盖调研区主要作物（水稻、花生、蔬菜）与三类隐形胁迫（早期病害、营养缺乏、水分胁迫），另设 unusable 类兜住杂草/土壤/糊片等非作物画面，避免系统在田间复杂背景下强行给结论。",
+  "description": "小农户作物隐形胁迫识别类别体系。覆盖调研区主要作物（水稻、花生、蔬菜、玉米）与三类隐形胁迫（早期病害、营养缺乏、水分胁迫），另设 unusable 类兜住杂草/土壤/糊片等非作物画面，避免系统在田间复杂背景下强行给结论。",
   "crops": {
     "rice": { "name_zh": "水稻", "name_en": "Rice" },
     "peanut": { "name_zh": "花生", "name_en": "Peanut" },
     "vegetable": { "name_zh": "蔬菜", "name_en": "Vegetable" },
+    "maize": { "name_zh": "玉米", "name_en": "Maize" },
     "none": { "name_zh": "非作物", "name_en": "Not a crop" }
   },
   "stress_types": {
@@ -160,8 +161,41 @@
       "voice_yue": "蔬菜缺水，葉軟咗。"
     },
     {
-      "id": "unusable",
+      "id": "maize_healthy",
       "index": 13,
+      "crop": "maize",
+      "stress": "healthy",
+      "name_zh": "玉米·健康",
+      "name_en": "Maize healthy",
+      "icon": "leaf_healthy",
+      "voice_zh": "玉米长势正常，没有发现问题。",
+      "voice_yue": "玉米生長正常，冇發現問題。"
+    },
+    {
+      "id": "maize_rust",
+      "index": 14,
+      "crop": "maize",
+      "stress": "disease",
+      "name_zh": "玉米·锈病",
+      "name_en": "Maize common rust",
+      "icon": "leaf_spots",
+      "voice_zh": "玉米可能得了锈病，叶子上有铁锈色的小粉点。",
+      "voice_yue": "玉米可能生咗銹病，葉上有鐵鏽色嘅小粉點。"
+    },
+    {
+      "id": "maize_northern_leaf_blight",
+      "index": 15,
+      "crop": "maize",
+      "stress": "disease",
+      "name_zh": "玉米·大斑病",
+      "name_en": "Maize northern leaf blight",
+      "icon": "leaf_spots",
+      "voice_zh": "玉米可能得了大斑病，叶子上有长条形的灰褐色病斑。",
+      "voice_yue": "玉米可能生咗大斑病，葉上有長條形嘅灰褐色病斑。"
+    },
+    {
+      "id": "unusable",
+      "index": 16,
       "crop": "none",
       "stress": "invalid",
       "name_zh": "画面无法识别",

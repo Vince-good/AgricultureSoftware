@@ -16,10 +16,11 @@
 
 生成内容
 --------
-14 个类别目录（与 `heyan/assets/taxonomy.json` 一致），每张图包含：
+全部类别目录（与 `heyan/assets/taxonomy.json` 一致，当前 17 类含玉米三态），每张图包含：
   田间背景（土壤/杂草，带低频明暗起伏）
-  + 作物形态（水稻长披针叶 / 花生小叶 / 蔬菜阔叶，含叶脉）
-  + 胁迫特征（梭形病斑、圆形叶斑、失绿黄化、暗紫缺磷、萎蔫失水、霜霉斑块）
++ 作物形态（水稻长披针叶 / 花生小叶 / 蔬菜阔叶 / 玉米宽大弓形叶，含叶脉）
++ 胁迫特征（梭形病斑、圆形叶斑、锈病疱点、大斑病长梭斑、失绿黄化、暗紫缺磷、
+  萎蔫失水、霜霉斑块）
   + 全局扰动（曝光/色温/旋转/JPEG 压缩），制造类内方差
 
 用法
@@ -146,18 +147,47 @@ def leaf_mask_vegetable(rng: np.random.Generator, size: int) -> Tuple[np.ndarray
     return mask, {"teeth": float(teeth)}
 
 
+def leaf_mask_maize(rng: np.random.Generator, size: int) -> Tuple[np.ndarray, Dict[str, float]]:
+    """玉米：宽大披针形叶片，主脉明显，常呈下垂的弓形。
+
+    与水稻同为平行脉，但叶片宽 1.5~2 倍、弧度更大 —— 田里拍玉米往往是
+    一片叶子横贯整个画面，这个形态差异本身就是分类线索。
+    """
+    x, y = _grid(size)
+    angle = float(rng.uniform(-0.62, 0.62))
+    xr, yr = _rotate(x, y, angle)
+    a = float(rng.uniform(1.00, 1.15))       # 半长：玉米叶通常铺满画面
+    b = float(rng.uniform(0.22, 0.32))       # 半宽：明显宽于水稻
+    bow = float(rng.uniform(-0.34, 0.34))    # 弯曲度：下垂的弓形
+    centre = bow * (xr ** 2)
+    taper = np.sqrt(np.clip(1.0 - (xr / a) ** 2, 0.0, None))
+    # 叶基（靠茎的一侧）略窄、叶中部最宽，用 taper**0.7 把最宽处往中部推
+    half_w = b * (taper ** 0.7)
+    mask = _soft(half_w - np.abs(yr - centre), 0.035)
+    mask *= _soft(a - np.abs(xr), 0.05)
+    return mask, {"bow": bow, "half_w": b, "angle": angle}
+
+
 MASK_BUILDERS = {"rice": leaf_mask_rice, "peanut": leaf_mask_peanut,
-                 "vegetable": leaf_mask_vegetable}
+                 "vegetable": leaf_mask_vegetable, "maize": leaf_mask_maize}
+# 类别没给出可用形态时（例如 unusable）随机挑一种作物轮廓，列表跟着 MASK_BUILDERS 走，
+# 新增作物不必再来这里改一遍。
+_SHAPE_CROPS = tuple(MASK_BUILDERS)
 
 
 def veins(crop: str, rng: np.random.Generator, size: int, mask: np.ndarray) -> np.ndarray:
     """叶脉：返回 -1~1 的明暗调制，乘在叶色上。"""
     x, y = _grid(size)
-    if crop == "rice":
+    if crop in ("rice", "maize"):
         angle = float(rng.uniform(-0.55, 0.55))
         _, yr = _rotate(x, y, angle)
-        freq = float(rng.uniform(34.0, 46.0))
-        return 0.10 * np.sin(freq * yr) * mask
+        # 玉米叶更宽，平行脉间距更大、主脉更突出
+        freq = float(rng.uniform(20.0, 30.0)) if crop == "maize" else float(rng.uniform(34.0, 46.0))
+        lateral = 0.10 * np.sin(freq * yr)
+        if crop == "maize":
+            mid = _soft(0.036 - np.abs(yr), 0.02)
+            lateral = lateral + 0.12 * mid
+        return lateral * mask
     # 主脉 + 侧脉
     mid = _soft(0.030 - np.abs(x), 0.02)
     laterals = np.zeros((size, size), dtype=np.float32)
@@ -178,6 +208,8 @@ BASE_GREEN = {
     "rice": np.array([0.30, 0.55, 0.22], dtype=np.float32),
     "peanut": np.array([0.28, 0.50, 0.20], dtype=np.float32),
     "vegetable": np.array([0.22, 0.48, 0.19], dtype=np.float32),
+    # 玉米叶色偏深、略带蓝调，与水稻的鲜绿区分开
+    "maize": np.array([0.21, 0.46, 0.24], dtype=np.float32),
 }
 SOIL = np.array([0.30, 0.22, 0.15], dtype=np.float32)
 
@@ -226,6 +258,32 @@ YELLOW = np.array([0.82, 0.72, 0.20], dtype=np.float32)
 BROWN = np.array([0.34, 0.20, 0.09], dtype=np.float32)
 GREY = np.array([0.58, 0.57, 0.53], dtype=np.float32)
 PURPLE = np.array([0.34, 0.16, 0.34], dtype=np.float32)
+# 玉米锈病孢子堆的肉桂/铁锈色，比 BROWN 更红更亮
+RUST = np.array([0.58, 0.27, 0.10], dtype=np.float32)
+# 玉米大斑病的灰褐色病斑，比 BROWN 更灰、更浅
+TAN = np.array([0.52, 0.47, 0.34], dtype=np.float32)
+
+
+def _mask_axis(mask: np.ndarray, size: int) -> float:
+    """从叶片掩膜估计主轴方向（弧度）。
+
+    玉米大斑病的病斑是顺着叶轴长的长梭形，如果随机取向，合成图看起来就是
+    "撒了一把瓜子"，与真实照片的形态学差异太大，模型学到的会是错误的特征。
+    这里对掩膜做二阶矩（等价于 PCA 主方向），不需要把叶片的旋转角从
+    mask builder 一路传进来，任何作物都能用。
+    """
+    x, y = _grid(size)
+    w = mask.astype(np.float64)
+    total = float(w.sum())
+    if total < 16.0:
+        return 0.0
+    cx = float((x * w).sum() / total)
+    cy = float((y * w).sum() / total)
+    dx, dy = x - cx, y - cy
+    sxx = float((dx * dx * w).sum())
+    syy = float((dy * dy * w).sum())
+    sxy = float((dx * dy * w).sum())
+    return 0.5 * math.atan2(2.0 * sxy, sxx - syy)
 
 
 def _blotches(rng: np.random.Generator, size: int, count: int,
@@ -290,6 +348,58 @@ def apply_downy_mildew(img: np.ndarray, mask: np.ndarray, rng: np.random.Generat
     fuzz_m = _soft(fuzz - float(rng.uniform(0.55, 0.70)), 0.10) * mask
     grey_purple = 0.5 * (GREY + PURPLE)
     img = _mix(img, grey_purple[None, None, :], (0.35 + 0.35 * severity) * fuzz_m)
+    return img
+
+
+def apply_rust(img: np.ndarray, mask: np.ndarray, rng: np.random.Generator,
+               size: int, severity: float) -> np.ndarray:
+    """玉米锈病：针尖到芝麻大的锈红色孢子堆密布叶面，常沿叶脉成行，几乎不带黄晕。
+
+    和花生/水稻的圆叶斑区别在尺度与密度：锈病的疱点非常小、数量上百、成行排列，
+    而圆叶斑是十几个大而边界清楚的斑。所以这里先按叶片主轴算出垂直方向的条带，
+    用它调制疱点密度（模拟"一串串铁锈"），再叠一层老熟疱点的深色，制造色阶层次。
+    """
+    axis = _mask_axis(mask, size)
+    x, y = _grid(size)
+    perp = -x * math.sin(axis) + y * math.cos(axis)
+    band = 0.45 + 0.55 * (0.5 + 0.5 * np.sin(
+        perp * float(rng.uniform(26.0, 44.0)) + float(rng.uniform(0, math.pi))))
+    pust = np.zeros((size, size), dtype=np.float32)
+    count = int(round(rng.integers(45, 95) * (0.45 + severity)))
+    for m, _ in _blotches(rng, size, count, (0.008, 0.022), (0.008, 0.022)):
+        pust = np.maximum(pust, m)
+    pust = np.clip(pust * band * mask, 0.0, 1.0)
+    img = _mix(img, RUST[None, None, :], (0.70 + 0.25 * severity) * pust[..., None])
+    aged = _soft(pust - float(rng.uniform(0.55, 0.75)), 0.30)
+    img = _mix(img, BROWN[None, None, :], 0.55 * aged[..., None])
+    return img
+
+
+def apply_northern_leaf_blight(img: np.ndarray, mask: np.ndarray, rng: np.random.Generator,
+                               size: int, severity: float) -> np.ndarray:
+    """玉米大斑病：长梭形灰褐色病斑，长轴顺着叶片伸展，边缘深褐、中部灰白。
+
+    病斑长宽比 6~10:1，比稻瘟病的梭形斑更长更窄；长轴在叶片主轴附近摆动而不是
+    完全平行，重病叶整体失绿发黄。主轴取自 mask 的 PCA，所以叶片旋转多少都跟得上。
+    """
+    axis = _mask_axis(mask, size)
+    x, y = _grid(size)
+    count = int(round(rng.integers(3, 8) * (0.5 + severity)))
+    for _ in range(max(count, 1)):
+        cx = float(rng.uniform(-0.62, 0.62))
+        cy = float(rng.uniform(-0.62, 0.62))
+        half_len = float(rng.uniform(0.10, 0.26)) * (0.7 + 0.6 * severity)
+        half_wid = half_len * float(rng.uniform(0.10, 0.18))
+        ang = axis + float(rng.uniform(-0.35, 0.35))
+        xr, yr = _rotate(x - cx, y - cy, ang)
+        d = np.sqrt((xr / max(half_len, 1e-3)) ** 2 + (yr / max(half_wid, 1e-3)) ** 2)
+        lesion = _soft(1.0 - d, 0.12) * mask
+        core = _soft(1.0 - d / 0.62, 0.16) * mask
+        img = _mix(img, BROWN[None, None, :], 0.70 * lesion[..., None])
+        img = _mix(img, TAN[None, None, :], 0.80 * core[..., None])
+    if severity > 0.6:
+        yellowing = 0.30 * (severity - 0.6) / 0.4
+        img = _mix(img, YELLOW[None, None, :], yellowing * mask[..., None])
     return img
 
 
@@ -368,6 +478,8 @@ STRESS_APPLIERS = {
     "rice_brown_spot": apply_round_spots,
     "peanut_leaf_spot": apply_round_spots,
     "vegetable_downy_mildew": apply_downy_mildew,
+    "maize_rust": apply_rust,
+    "maize_northern_leaf_blight": apply_northern_leaf_blight,
     "rice_n_deficiency": apply_chlorosis,
     "peanut_n_deficiency": apply_chlorosis,
     "vegetable_p_deficiency": apply_purple,
@@ -387,12 +499,12 @@ def render_image(rng: np.random.Generator, class_id: str, crop: str, size: int) 
     img = background(rng, size)
     if class_id == "unusable" and rng.random() < 0.35:
         # 有一部分"无法识别"样本是压根没有叶片的空镜
-        crop_for_shape = str(rng.choice(["rice", "peanut", "vegetable"]))
+        crop_for_shape = str(rng.choice(_SHAPE_CROPS))
         mask, _ = MASK_BUILDERS[crop_for_shape](rng, size)
         return _finalize(apply_unusable(img, np.zeros_like(mask), rng, size, 1.0),
                          rng, size, blur=0)
 
-    shape_crop = crop if crop in MASK_BUILDERS else str(rng.choice(["rice", "peanut", "vegetable"]))
+    shape_crop = crop if crop in MASK_BUILDERS else str(rng.choice(_SHAPE_CROPS))
     mask, _ = MASK_BUILDERS[shape_crop](rng, size)
 
     if class_id != "unusable":

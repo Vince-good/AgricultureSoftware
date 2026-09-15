@@ -11,9 +11,11 @@
 | ⬜ | 工具或接口已就绪，实际工作尚未开展 |
 | ➖ | 超出软件工程范围（属于文档里的调研/实验工作） |
 
-> 一句提醒：仓库里所有精度数字都跑在 560 张**合成**图上（`tools/make_demo_dataset.py`，
-> 14 类 × 40 张）。它们只证明流水线通、预算守住，**不代表田间准确率**。
-> 凡是标 🟡 的行，都卡在"缺真实田间照片"这一件事上。
+> 一句提醒：v1.1.0 之前，仓库里所有精度数字都跑在合成图上。v1.1.0 起混进了 82 张
+> **真实田间实拍**（玉米健康 30 / 锈病 25 / 大斑病 27），但合成图仍占大头
+> （680 张 = 17 类 × 40）。所以精度数字只证明流水线通、预算守住、老知识没丢，
+> **仍然不代表水稻/花生/蔬菜的田间准确率**——那三类至今没有一张实拍。
+> 凡是标 🟡 的行，都卡在"缺更多真实田间照片"这一件事上。
 
 ## 一、硬指标（研究问题 2、§3.2(2)(4)）
 
@@ -21,15 +23,20 @@
 
 | 文档要求 | 常量 | 实现 | 验证 | 实测 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 量化后模型体积 ≤ 20MB | `MODEL_SIZE_MAX_MB` | `heyan/core/bundle.py::model_size_mb`（按**实际部署**的那个文件算：INT8 优先） | `tests/test_core_contract.py::test_model_size_budget` | 1.58MB | ✅ |
-| 单张端到端延迟 ≤ 3s | `LATENCY_MAX_S` | `heyan/core/engine.py`（预处理+推理+分级+文案全链路计时） | `test_latency_budget` | p95 8ms | ✅ |
-| 运行内存增量 ≤ 200MB | `RUNTIME_MEMORY_MAX_MB` | `heyan/eval/benchmark.py`（RSS 增量） | `test_memory_budget` | +18.98MB | ✅ |
+| 量化后模型体积 ≤ 20MB | `MODEL_SIZE_MAX_MB` | `heyan/core/bundle.py::model_size_mb`（按**实际部署**的那个文件算：INT8 优先） | `tests/test_core_contract.py::test_model_size_budget` | 1.74MB | ✅ |
+| 单张端到端延迟 ≤ 3s | `LATENCY_MAX_S` | `heyan/core/engine.py`（预处理+推理+分级+文案全链路计时） | `test_latency_budget` | p95 7ms | ✅ |
+| 运行内存增量 ≤ 200MB | `RUNTIME_MEMORY_MAX_MB` | `heyan/eval/benchmark.py`（RSS 增量） | `test_memory_budget` | +14.8MB | ✅ |
 | 目标设备 RAM ≤ 2GB | `DEVICE_RAM_MAX_MB` | `benchmark.py` 的设备画像判定 | `benchmark.json` 的 `device_profile` | 2048MB 档位达标 | ✅ |
 | 目标设备成本 ≤ 300 元 | `DEVICE_COST_MAX_CNY` | 同上 | 同上 | 300 元档位达标 | ✅ |
-| 量化掉点 ≤ 3% | `ACCURACY_DROP_MAX` | `heyan/train/qat.py`（纯 PTQ 在本模型上掉 15~47 个点，必须 QAT 才能兑现） | `test_quantization_accuracy_drop` | −24.11 个点（INT8 反超 FP32） | 🟡 |
+| 量化掉点 ≤ 3% | `ACCURACY_DROP_MAX` | `heyan/train/qat.py`（激活定标走 `QUANT_CALIBRATION_PERCENTILE = 99.5` 百分位截断 + QAT；MinMax 定标被离群激活撑爆网格，掉 15~47 个点） | `test_quantization_accuracy_drop` | −17.11 个点（FP32 0.7105 → INT8 0.8816，反超） | ✅ |
 
-> 体积口径：包里三个模型文件（INT8 1.58MB / FP32 5.10MB / 便携 npz 4.74MB）**一台设备只装一个**，
-> 20MB 预算按实际部署的 INT8 判定；三者合计 11.42MB 单独报在 `benchmark.json` 的 `all_models_mb`。
+> 量化掉点的分母是**混合验证集**（152 张 = 136 合成 + 16 田间实拍），所以这条 ✅ 只说明
+> 量化本身没有毁掉精度，不等于田间准确率达标。百分位取 99.5 是扫出来的不是拍的：
+> 99.5 在三档采样预算下都收敛到 0.783，99.9 在 0.69~0.75 之间随采样噪声乱跳，
+> 99.95 采样越多掉点越大。详见 `heyan/config.py` 与 `heyan/train/qat.py` 的注释。
+
+> 体积口径：包里三个模型文件（INT8 1.74MB / FP32 5.87MB / 便携 npz 5.45MB）**一台设备只装一个**，
+> 20MB 预算按实际部署的 INT8 判定；三者合计 13.05MB 单独报在 `benchmark.json` 的 `all_models_mb`。
 
 复测命令：`python -m heyan.cli benchmark`（越线即非零退出）。
 
@@ -53,12 +60,14 @@
 | (3) 小样本：预训练模型微调 | `heyan/train/finetune.py`，`--strategy full/partial/head`，`tools/download_weights.py` 拉 ImageNet 预训练权重 | ✅ |
 | (3) 小样本：参数高效微调 | 同上，`partial` 只解冻后 4 个 block（`--unfreeze-blocks`），骨干 lr 3e-4 / 分类头 lr 3e-3 分组 | ✅ |
 | (3) 小样本：数据增强 | `heyan/train/augment.py`（旋转、裁剪、色彩抖动，模拟田间不均匀光照） | ✅ |
-| (3) 田间背景杂乱、光照不均带来的泛化风险 | `tools/ingest_field_samples.py` + `heyan/cli.py ingest`：导入实拍照片、按类体检样本量、剔除损坏文件、校验标签合法性 | ⬜ 工具就绪，尚无真实照片入库 |
+| (3) 田间背景杂乱、光照不均带来的泛化风险 | `tools/ingest_field_samples.py`（目录名经 `label_aliases.json` 翻译成 class_id，认不出的当场报错）+ `tools/finetune_field.py`（冻骨干只训分类头、合成+真实混合回放防灾难性遗忘、训前训后两份遗忘体检） | 🟡 玉米三类 82 张已入库并重训（田间 top1 0.0 → 0.75，老类别 0.6875 → 0.8393）；水稻/花生/蔬菜仍无实拍 |
 | (4) 体积 ≤ 20MB、内存 ≤ 200MB | 见第一节 | ✅ |
 | (4) 具体性能待真实设备实测 | `benchmark.py` 支持 `--device-ram-mb` / `--device-cost-cny` / `--images` 指定真机与真图 | ⬜ 需在目标设备上跑 |
 
 **模型选择遵循文档结论**：MobileNetV3-Small 学生 + MobileNetV3-Large 教师，
-经「微调 → 蒸馏 → 低秩剪枝 → QAT → INT8 量化 → ONNX 导出」压到 1.58MB。
+经「微调 → 蒸馏 → 低秩剪枝 → QAT → INT8 量化 → ONNX 导出」压到 1.74MB。
+v1.1.0 的田间微调走的是更保守的一档：`linear_probe` 冻住整个主干只训分类头，
+从上一版**未剪枝**检查点热启动，fc 层按 `class_id` 对齐行号扩容，新增类别保留随机初始化。
 文档 §3.2(1) 提到 ShuffleNet 与 EfficientNet-Lite 作为备选，本项目未实现这两条分支——
 选型依据是文档自己的结论（"MobileNetV3 在三维权衡下较为均衡"）。
 
@@ -69,7 +78,7 @@
 | 极简三步：打开 → 拍照 → 自动识别并语音播报 | `heyan/server/static/index.html` + `app.js`，首屏即取景器，一个大快门键 | `tests/test_server_api.py::test_static_shell`、`test_bootstrap_contract` | ✅ |
 | 播报内容含病害名称、严重程度、处理建议 | `heyan/advice.py` + `heyan/assets/advisory.json`，`heyan/core/severity.py` 分级 | `test_advice_voice_texts_exist_for_every_class` | ✅ |
 | 多语言语音：普通话、粤语、潮汕话、客家话 | `heyan/i18n.py`（zh/yue/hak/teochew/en，143 键 × 5 语种全覆盖）、`heyan/tts/languages.py` | `test_i18n_full_coverage` | ✅ 文案 / 🟡 语音 |
-| 离线 TTS，语音资源预置在安装包内 | `heyan/tts/voicepack.py`（预渲染 wav）、`heyan/tts/synth.py`（运行时解析），382 条随模型包分发 | `tests/test_tts.py` 6 项 | ✅ |
+| 离线 TTS，语音资源预置在安装包内 | `heyan/tts/voicepack.py`（预渲染 wav）、`heyan/tts/synth.py`（运行时解析），404 条随模型包分发（zh 202 + en 202；v1.1.0 新增玉米三类时补渲染 11 条/语种，其余复用） | `tests/test_tts.py` 6 项 | ✅ |
 | 视觉辅助：大字体、高对比度、图标为主 | `heyan/server/static/style.css`，`UI_MIN_FONT_PX=20`、`UI_TOUCH_TARGET_PX=72` | 常量在 `config.py`，构建时可查 | ✅ |
 | 低置信度不硬下结论 | `MIN_CONFIDENCE_FOR_VERDICT=0.45`，低于阈值改播「看不清楚，请靠近一点再拍一次」 | `test_tts.py::test_retake_never_speaks_diagnosis` | ✅ |
 | 用户对比实验（60 人、实验组/对照组、5 种胁迫图像） | `heyan/eval/usability.py`：SUS 评分 + Bangor 形容词分级 + TAM（PU/PEOU/BI）+ 任务计时 | `heyan usability` CLI | ⬜ 量表工具就绪，实验未开展（需线下组织） |
@@ -95,10 +104,10 @@
 
 | 文档条目 | 落到软件里的部分 | 状态 |
 | --- | --- | --- |
-| 2.1 调研区域：粤东西北，水稻 / 花生 / 蔬菜 | `heyan/classes.py` + `heyan/assets/taxonomy.json`：14 类（水稻 5 + 花生 4 + 蔬菜 4 + 1 个 `unusable` 兜底类），`manifest.json` 的 `region` 字段记「粤东西北」 | ✅ |
+| 2.1 调研区域：粤东西北，水稻 / 花生 / 蔬菜 | `heyan/classes.py` + `heyan/assets/taxonomy.json`：17 类（水稻 5 + 花生 4 + 蔬菜 4 + 玉米 3 + 1 个 `unusable` 兜底类），`manifest.json` 的 `region` 字段记「粤东西北」。玉米三类是 v1.1.0 按田间采集批次扩的，文档原表的三种作物仍在 | ✅ |
 | 2.1 对象含农技员、保险理赔员、农资站经营者 | 三类角色分别对应导出用途 `statistics` / `insurance` / `agri_supply`，各有独立字段裁剪 | ✅ |
-| 2.2 约 100 张田间真实图像样本 | `tools/ingest_field_samples.py` + `heyan ingest --labels-csv --image-root`，含每类样本量下限体检（`--min-per-class`） | ⬜ 工具就绪，样本尚未入库 |
-| 2.3 痛点一：识别手段原始、误判率高 | 14 类体系覆盖早期胁迫（氮缺乏、水分胁迫、叶斑、稻瘟、霜霉），`severity.py` 给出严重程度而非二值判断 | ✅ |
+| 2.2 约 100 张田间真实图像样本 | `tools/ingest_field_samples.py`（两种输入布局：`--labels-csv` 或 `--image-folder` 目录名）+ `heyan ingest`，体检覆盖解码/通道数/分辨率分布/每类样本量/标签合法性/重复文件 | 🟡 已入库 82 张（玉米健康 30 / 锈病 25 / 大斑病 27），距文档的 100 张差 18 张，且全部集中在玉米 |
+| 2.3 痛点一：识别手段原始、误判率高 | 17 类体系覆盖早期胁迫（氮缺乏、水分胁迫、叶斑、稻瘟、霜霉、玉米锈病与大斑病），`severity.py` 给出严重程度而非二值判断 | ✅ |
 | 2.3 痛点二：现有方案要联网、步骤多、看不懂 | 全程离线（PWA + Service Worker），三步流程，结果以语音 + 图标 + 颜色呈现 | ✅ |
 | 2.3 痛点三：老年农户数字鸿沟 | 见第四节适老化设计 | ✅ |
 | 2.3 痛点四：信息获取被动 | 导出 + 发件箱让农技站/保险/农资方主动拿到结构化数据 | 🟡 |
@@ -124,14 +133,18 @@
 
 ## 八、诚实清单：没做到的事
 
-1. **精度数字来自合成数据**。560 张程序生成的图，14 类各 40 张。它证明的是
-   「蒸馏 → 剪枝 → QAT → 量化」这条链路可复现、预算守得住，不是田间准确率。
-   要用起来，必须拿文档 §2.2 那批实拍照片（以及更多）走 `ingest` → `build` 重训重测。
+1. **精度数字仍以合成数据为主**。680 张程序生成的图（17 类各 40）+ 82 张真实田间实拍，
+   而实拍全部集中在玉米三类，验证集里只占 16 张 —— 一张图就是 6.25 个百分点，
+   置信区间很宽。水稻、花生、蔬菜至今**没有一张实拍**，那 13 个老类别的田间精度
+   完全未经验证。要收紧就得继续按 §5.1 补样本重训重测。
 2. **§3.3(2) 的 60 人对比实验没做**。SUS / TAM / 任务计时工具已就绪（`heyan usability`），
    但招募、分组、线下施测不在软件工程范围内。
 3. **保险、补贴、农资三个适配器是接口原型**。数据格式、字段裁剪、授权门控、发件箱都实现并可测，
    但没有对接任何真实业务系统，也没有真实的农资站目录数据。
 4. **粤语、客家话、潮汕话没有语音**，客家话与潮汕话的文案还缺母语者审校。
-5. **未在真实低端设备上实测**。延迟与内存数字跑在开发机上（p95 8ms / +19MB），
+5. **未在真实低端设备上实测**。延迟与内存数字跑在开发机上（p95 7ms / +14.8MB），
    目标是 RAM ≤ 2GB 的手机或 ≤ 300 元的开发板，需在真机复测。
 6. **便携 npz 退路很慢**。纯 NumPy 解释器能跑通，只作无 onnxruntime 环境的兜底，不作性能路径。
+7. **INT8 在 CPU 上比 FP32 慢**：onnxruntime 实测 12.09ms vs 3.52ms（0.29×），
+   因为这条路径没有 int8 算子融合。离 3s 预算远得很，所以仍按体积优先交付 INT8，
+   但"量化必然更快"在这个后端上不成立，别拿它当性能优化手段。

@@ -32,18 +32,20 @@
   dist/        发行 zip 与 sha256 校验单
 ```
 
-仓库自带的模型包在 `artifacts/bundles/heyan-mnv3s-int8-v1.0.0/`：
+仓库自带的模型包在 `artifacts/bundles/heyan-mnv3s-int8-v1.1.0/`（`serve` 自动挑最新的一个；
+上一版 `v1.0.0` 仍留在原地，方便 `--bundle` 指名对比）：
 
 | 文件 | 大小 | 用途 |
 | --- | --- | --- |
-| `model_int8.onnx` | 1.58MB | **部署文件**，20MB 预算按它判定 |
-| `model_fp32.onnx` | 5.10MB | 训练对照，不上设备 |
-| `model_portable.hgraph.npz` | 4.74MB | 无 onnxruntime 时的退路 |
+| `model_int8.onnx` | 1.74MB | **部署文件**，20MB 预算按它判定 |
+| `model_fp32.onnx` | 5.87MB | 训练对照，不上设备 |
+| `model_portable.hgraph.npz` | 5.45MB | 无 onnxruntime 时的退路 |
 | `labels.json` | — | 模型输出下标 ↔ 类别 id（训练字母序，与展示序不同） |
 | `advisory.json` | — | 每类的严重程度分级与处置建议文案 |
 | `manifest.json` | — | 构建参数、压缩比、预算判定结果、完整指标 |
 | `benchmark.json` / `benchmark.txt` | — | 最近一次基准报告 |
-| `voicepack/` | ~41MB | 382 条预渲染语音（zh 191 + en 191） |
+| `build_report.json` | — | 各阶段完整指标，含田间/合成两份遗忘体检 |
+| `voicepack/` | ~45MB | 404 条预渲染语音（zh 202 + en 202） |
 
 ## 3. 日常运行
 
@@ -57,7 +59,7 @@ python -m heyan.cli serve --port 8080
 
 ```text
 [heyan] 界面地址 http://127.0.0.1:8080
-[heyan] 模型包 E:\mywork\AgricultureSoftware\artifacts\bundles\heyan-mnv3s-int8-v1.0.0
+[heyan] 模型包 E:\mywork\AgricultureSoftware\artifacts\bundles\heyan-mnv3s-int8-v1.1.0
  * Running on http://127.0.0.1:8080
 Press CTRL+C to quit
 ```
@@ -90,14 +92,14 @@ python -m heyan.cli benchmark         # 复测体积/延迟/内存，越线非�
 
 ```powershell
 python tools\package_bundle.py
-# -> artifacts/dist/heyan-mnv3s-int8-v1.0.0.zip（约 32.7MB）
-# -> artifacts/dist/heyan-mnv3s-int8-v1.0.0.zip.sha256
+# -> artifacts/dist/heyan-mnv3s-int8-v1.1.0.zip（约 36.6MB）
+# -> artifacts/dist/heyan-mnv3s-int8-v1.1.0.zip.sha256
 ```
 
 拷到目标设备后先校验再解压：
 
 ```powershell
-python tools\package_bundle.py --verify D:\heyan-mnv3s-int8-v1.0.0.zip
+python tools\package_bundle.py --verify D:\heyan-mnv3s-int8-v1.1.0.zip
 ```
 
 校验通过再解压到目标设备的 `<HEYAN_HOME>/bundles/` 下，然后设 `HEYAN_HOME` 指向该目录即可，
@@ -116,9 +118,41 @@ python -m heyan.cli benchmark --device-ram-mb 2048 --device-cost-cny 300 --image
 
 ## 5. 用真实田间照片重训
 
-仓库现在的模型是在 560 张合成图上训的，**田间不可直接用**。拿到实拍照片后：
+v1.1.0 已经这么做过一轮：82 张玉米田间实拍（健康 30 / 锈病 25 / 大斑病 27）进来，
+类别从 14 扩到 17，田间验证 top1 从 0.0 提到 0.75，老类别不降反升。下面按样本量分两条路。
 
-第一步，整理标签清单 `labels.csv`，两列，UTF-8：
+### 5.1 小样本路线（每类几张到几十张，推荐）
+
+第一步，把照片按采集目录丢进来，体检 + 导入：
+
+```powershell
+python tools\ingest_field_samples.py --image-folder dateBase_Maize --out artifacts\data\field
+```
+
+目录名不必等于 `class_id`：`heyan/assets/label_aliases.json` 负责翻译
+（`Maize_RustDisease` → `maize_rust`，中文别名「玉米锈病」同样命中）。解析前会归一化
+大小写与分隔符。**认不出的目录当场报错**，不静默跳过 —— 小样本下少一个目录就是少一整类。
+新作物或新采集批次只改这个 json，不动代码。
+
+体检会报：能否解码、通道数、分辨率分布、每类样本量、标签合法性、重复文件
+（同一张照片被贴两个标签是最隐蔽的错误）。
+
+第二步，冻骨干只训分类头，合成 + 真实混合回放，QAT 量化，打新版包：
+
+```powershell
+python tools\finetune_field.py --dry-run            # 先看数据体检与热启动对齐报告
+python tools\finetune_field.py --version 1.2.0      # 全流程，产出新 bundle 替换旧包
+```
+
+这条路刻意不跑完整流水线：真实照片每类只有二三十张，全量微调必然过拟合。所以
+`linear_probe` 冻住 MobileNetV3 主干只训分类头，真实照片走完整增强（随机旋转/翻转/亮度/
+色温/遮挡/JPEG），并把合成回放集按 `class_id` 对齐拼进同一个训练集防灾难性遗忘。
+训完自动做两份遗忘体检：老类别在合成回放上、新类别在田间实拍上，训前训后各测一次，
+老类别掉超过 `--forget-tolerance`（默认 0.02）就报警。
+
+### 5.2 全量路线（样本充足时）
+
+每类上百张以后才值得走完整的「蒸馏 → 剪枝 → QAT」。先备 `labels.csv`，两列，UTF-8：
 
 ```csv
 filename,class_id
@@ -126,21 +160,11 @@ IMG_0001.jpg,rice_blast
 IMG_0002.jpg,peanut_leaf_spot
 ```
 
-`class_id` 必须是 `heyan/assets/taxonomy.json` 里的 14 个之一。拍糊了、不是作物的照片
+`class_id` 必须是 `heyan/assets/taxonomy.json` 里的 17 个之一。拍糊了、不是作物的照片
 统一标 `unusable`——这是兜底类，宁可让它多学一点，也不要硬塞进病害类。
-
-第二步，导入并体检：
 
 ```powershell
 python -m heyan.cli ingest --labels-csv D:\field\labels.csv --image-root D:\field\photos --min-per-class 10
-```
-
-体检会报：每类样本量是否够、有没有损坏文件、标签是否合法。文档 §2.2 那 100 张实拍样本
-是这一步的起点，但每类 10 张以下的话建议先补数据再训。
-
-第三步，重训打包：
-
-```powershell
 python -m heyan.cli build --data-dir artifacts\data\field --labels-csv artifacts\data\field\labels.csv --image-root artifacts\data\field\images --voice-langs zh,en --pack-zip
 ```
 
@@ -175,7 +199,7 @@ python -m heyan.cli build --data-dir artifacts\data\field --labels-csv artifacts
 
 组织一次录音的步骤：
 
-1. 取 slug 清单：打开 `artifacts/bundles/heyan-mnv3s-int8-v1.0.0/voicepack/index.json`，
+1. 取 slug 清单：打开 `artifacts/bundles/heyan-mnv3s-int8-v1.1.0/voicepack/index.json`，
    每条都有 `slug`、对应文本和时长上限（`VOICE_MAX_SECONDS = 12`）。
 2. 按清单录 wav，参数对齐现有语音包：单声道、22050Hz、16-bit。
 3. 放到 `<语音包根>/recordings/hak/<slug>.wav`（客家话；潮汕话用 `teochew`，粤语用 `yue`）。

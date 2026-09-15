@@ -562,9 +562,18 @@ def summarize(stages: Dict[str, Any], bundle: ModelBundle, bench: Dict[str, Any]
     t = stages.get("train", {}) or {}
     lines: List[str] = []
     student = (t.get("student") or {}).get("metrics") or {}
-    lines.append(f"验证集 top1: FP32 {student.get('top1')} -> INT8 "
+    # 掉点是拿量化阶段自己那份 FP32 ONNX 当基准算的，汇总行必须用同一个基准。
+    # 田间微调路径下 train 阶段记的是冻骨干 head-only 的成绩，而 FP32 ONNX 是
+    # QAT 之后重导出的（BN 统计已漂移），两者不是一个数，混在一行会对不上账。
+    fp32_top1 = (q.get("metrics_fp32") or {}).get("top1")
+    if fp32_top1 is None:
+        fp32_top1 = student.get("top1")
+    lines.append(f"验证集 top1: FP32 {fp32_top1} -> INT8 "
                  f"{(q.get('metrics_int8') or {}).get('top1')} "
                  f"(掉 {q.get('accuracy_drop_top1')})")
+    if student.get("top1") is not None and student.get("top1") != fp32_top1:
+        lines.append(f"QAT 前训练权重 top1 {student['top1']}；上表 FP32 为 QAT 后重导出的 "
+                     f"ONNX，BN 统计漂移使其降到 {fp32_top1}")
     if p.get("compression"):
         c = p["compression"]
         lines.append(f"低秩剪枝: 压缩 {c.get('layers_compressed')} 层，参数减少 "

@@ -67,6 +67,97 @@ def discover_samples(root: Path | str, class_ids: Optional[Sequence[str]] = None
     return samples, ids
 
 
+@dataclass
+class AliasedDiscovery:
+    """按别名表扫描田间采集目录的结果。
+
+    `dir_map` 与 `unknown_dirs` 一定要落进训练报告：小样本微调里"某个目录名
+    没被认出来、整批照片被静默丢掉"是最难事后发现的事故。
+    """
+
+    samples: List[Tuple[Path, int]]
+    class_ids: List[str]
+    dir_map: Dict[str, str] = field(default_factory=dict)
+    unknown_dirs: List[str] = field(default_factory=list)
+    per_class: Dict[str, int] = field(default_factory=dict)
+    empty_classes: List[str] = field(default_factory=list)
+    root: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "root": self.root,
+            "total": len(self.samples),
+            "num_classes": len(self.class_ids),
+            "dir_map": dict(self.dir_map),
+            "unknown_dirs": list(self.unknown_dirs),
+            "per_class": dict(self.per_class),
+            "empty_classes": list(self.empty_classes),
+        }
+
+
+def discover_aliased_samples(root: Path | str, class_ids: Sequence[str],
+                             aliases=None, strict: bool = True) -> AliasedDiscovery:
+    """扫描 `<root>/<采集目录名>/<图片>`，用别名表把目录名翻成 class_id。
+
+    与 `discover_samples` 的区别：后者要求目录名**就是** class_id（合成数据集
+    的布局），而田间采集批次的目录名是团队自己起的（Maize_RustDisease 这种），
+    必须过一遍 `heyan.classes.load_label_aliases`。
+
+    标签索引一律按传入的 `class_ids` 定位，所以不同来源（真实照片 / 合成回放）
+    扫出来的样本可以直接拼接，不会错位。
+    """
+    from ..classes import load_label_aliases
+
+    root = Path(root)
+    if not root.exists():
+        raise FileNotFoundError(f"采集目录不存在: {root}")
+    aliases = aliases if aliases is not None else load_label_aliases()
+    ids = list(class_ids)
+    index = {cid: i for i, cid in enumerate(ids)}
+
+    dirs = sorted([d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")])
+    loose = [f.name for f in sorted(root.iterdir())
+             if f.is_file() and f.suffix.lower() in IMAGE_EXTS]
+    if loose:
+        # 散落在根目录的图片没有类别归属，宁可不训也不能猜
+        raise ValueError(f"{root} 根目录下有 {len(loose)} 张没有类别归属的图片"
+                         f"（例如 {loose[:3]}），请放进对应的类别子目录")
+
+    dir_map: Dict[str, str] = {}
+    unknown: List[str] = []
+    samples: List[Tuple[Path, int]] = []
+    for d in dirs:
+        cid = aliases.resolve(d.name)
+        if cid is None:
+            unknown.append(d.name)
+            continue
+        if cid not in index:
+            # 目录能认出来，但不在本次训练的类别集合里（例如只微调玉米时扫到了水稻批次）
+            unknown.append(d.name)
+            continue
+        dir_map[d.name] = cid
+        for f in sorted(d.rglob("*")):
+            if f.is_file() and f.suffix.lower() in IMAGE_EXTS:
+                samples.append((f, index[cid]))
+
+    if strict and unknown:
+        raise ValueError(
+            f"{root} 下有 {len(unknown)} 个目录无法映射到 class_id: {unknown}。"
+            f"请在 heyan/assets/label_aliases.json 里补别名，"
+            f"或传 strict=False 显式跳过（跳过会写进报告）。"
+        )
+
+    samples.sort(key=lambda t: (t[1], t[0].name))
+    counter = Counter(lbl for _, lbl in samples)
+    per_class = {cid: int(counter.get(i, 0)) for i, cid in enumerate(ids)}
+    return AliasedDiscovery(
+        samples=samples, class_ids=ids, dir_map=dir_map, unknown_dirs=unknown,
+        per_class=per_class,
+        empty_classes=[cid for cid, n in per_class.items() if n == 0],
+        root=str(root),
+    )
+
+
 def read_label_csv(csv_path: Path | str, image_root: Path | str) -> Tuple[List[Tuple[Path, int]], List[str]]:
     """导入团队真实田间照片：labels.csv 两列 filename,class_id。
 

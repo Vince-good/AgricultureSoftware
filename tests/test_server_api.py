@@ -28,8 +28,8 @@ def test_bootstrap_contract(client):
     assert body["app"]["ui"]["touch_target_px"] >= 72
     assert body["model"]["available"] is True
     assert body["benchmark"]["budget_ok"] is True
-    assert len(body["classes"]) == 14
-    assert {c["id"] for c in body["classes"]} >= {"rice_blast", "unusable"}
+    assert len(body["classes"]) == 17
+    assert {c["id"] for c in body["classes"]} >= {"rice_blast", "maize_rust", "unusable"}
     # 五种语言的话术表必须齐键，界面不允许出现裸 key
     for key in ("flip_camera", "sys_no_model", "record_detail"):
         assert key in body["i18n"], key

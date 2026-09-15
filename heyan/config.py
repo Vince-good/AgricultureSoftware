@@ -55,6 +55,13 @@ QUANT_ACTIVATION_TYPE = "quint8"
 QUANT_CALIBRATION_SAMPLES = 128
 QUANT_QAT_EPOCHS = 6
 QUANT_QAT_LR = 3e-5
+# 激活定标用百分位截断而不是 MinMax。田间真实照片微调时实测：MinMax 被极少数
+# 离群激活把网格步长撑到 0.87，伪量化 top1 只剩 0.342；截断到 99.5 百分位后最宽
+# 激活范围从 223 收到 16，零训练就有 0.783（掉点 0.026）。定标方式带来的差距比
+# 训练本身还大。99.5 是扫过 99.5/99.9/99.95 × 三档采样预算后唯一收敛的取值：
+# 99.9 在 0.69~0.75 之间随采样噪声乱跳，99.95 采样越多掉点越大（0.112->0.158）。
+# 设成 None 可退回原来的滑动平均 MinMax。
+QUANT_CALIBRATION_PERCENTILE = 99.5
 
 TOP_K = 3
 
@@ -81,6 +88,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 ASSETS_DIR = PACKAGE_ROOT / "assets"
 TAXONOMY_PATH = ASSETS_DIR / "taxonomy.json"
 ADVISORY_PATH = ASSETS_DIR / "advisory.json"
+# 田间采集目录名 -> taxonomy class_id 的别名表（例如 Maize_RustDisease -> maize_rust）
+LABEL_ALIASES_PATH = ASSETS_DIR / "label_aliases.json"
 VOICEPACK_ROOT = ASSETS_DIR / "voicepacks"
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-REAL_BUNDLE = REPO / "artifacts" / "bundles" / "heyan-mnv3s-int8-v1.0.0"
+BUNDLE_ROOT = REPO / "artifacts" / "bundles"
 DEMO_IMAGE = (REPO / "artifacts" / "data" / "demo_dataset"
               / "rice_blast" / "rice_blast_0000.jpg")
 
@@ -25,11 +25,43 @@ _TMP_HOME = Path(os.environ.get("HEYAN_TEST_HOME")
                  or (REPO / "artifacts" / "_pytest_home"))
 
 
+def _resolve_real_bundle() -> Path:
+    """取 artifacts/bundles 下最新的那个包，口径和 heyan.cli._resolve_bundle 一致。
+
+    版本号是构建时写死的，测试里再钉一遍就会在出了 v1.1.0 之后继续测 v1.0.0 ——
+    测的还是"早就验收通过的旧包"，新模型的问题被完全掩盖。
+    """
+    cands = [d for d in BUNDLE_ROOT.glob("heyan-mnv3s-int8-v*") if d.is_dir()]
+    if not cands:
+        return BUNDLE_ROOT / "heyan-mnv3s-int8-missing"  # 不存在，交给 fixture 去 skip
+    return max(cands, key=lambda d: d.stat().st_mtime)
+
+
+REAL_BUNDLE = _resolve_real_bundle()
+
+
+def _is_link(path: Path) -> bool:
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool((isjunction and isjunction(path)) or path.is_symlink())
+
+
+def _detach(path: Path) -> None:
+    """摘掉旧版本留下的链接。junction 只能 rmdir：rmtree 会顺着删掉真产物。"""
+    if _is_link(path):
+        os.rmdir(path)
+    elif path.exists():
+        shutil.rmtree(path, ignore_errors=True)  # copytree 兜底留下的真目录
+
+
 def _prepare_home() -> Path:
     _TMP_HOME.mkdir(parents=True, exist_ok=True)
     bundles = _TMP_HOME / "bundles"
     bundles.mkdir(parents=True, exist_ok=True)
     link = bundles / REAL_BUNDLE.name
+    # 换新版本时先清掉旧链接，否则临时目录里同时躺着两个包，服务端会挑错那个
+    for stale in bundles.iterdir():
+        if stale.name != REAL_BUNDLE.name:
+            _detach(stale)
     if not link.exists() and REAL_BUNDLE.exists():
         try:
             subprocess.run(

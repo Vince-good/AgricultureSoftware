@@ -10,6 +10,8 @@
     heyan benchmark    对已有 bundle 复测体积/延迟/内存
     heyan voicepack    离线预渲染语音包
     heyan serve        启动本地 Web 界面（拍照→识别→语音播报）
+                       加 --lan 让同一局域网的其他电脑/手机也能打开
+    heyan tunnel       内网穿透：起服务 + 起 ngrok/cpolar，给出一个公网链接
     heyan export       导出识别记录（JSON/CSV，可写 U 盘）
     heyan outbox       查看/冲刷对接发件箱（保险/补贴/农资）
     heyan schema       写出全部 JSON Schema 供对接方审阅
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -169,11 +172,37 @@ def cmd_voicepack(args) -> int:
 
 
 def cmd_serve(args) -> int:
+    from .server import guard
     from .server.app import create_app, run_server
 
-    app = create_app(bundle=args.bundle, language=args.lang, host=args.host, port=args.port)
-    run_server(app, host=args.host, port=args.port, debug=args.debug)
+    host = "0.0.0.0" if getattr(args, "lan", False) else args.host
+    public = bool(getattr(args, "public", False) or getattr(args, "tunnel", False))
+    if getattr(args, "tunnel", False):
+        # 隧道客户端从本机连进来，没必要顺手把网卡也敞开
+        host = "127.0.0.1"
+    token = getattr(args, "access_token", None) or os.environ.get("HEYAN_ACCESS_TOKEN")
+    if public and not token:
+        token = guard.generate_token()
+        print("[heyan] 没给 --access-token，已自动生成一个（只在这次运行有效）")
+    try:
+        app = create_app(bundle=args.bundle, language=args.lang, host=host, port=args.port,
+                         access_token=token, public=public)
+        run_server(app, host=host, port=args.port, debug=args.debug,
+                   ssl_cert=getattr(args, "ssl_cert", None),
+                   ssl_key=getattr(args, "ssl_key", None),
+                   access_token=token, public=public)
+    except ValueError as exc:
+        print(f"[heyan] {exc}")
+        return 2
     return 0
+
+
+def cmd_tunnel(args) -> int:
+    from .server import tunnel
+
+    return tunnel.run(port=args.port, client=args.client, token=args.access_token,
+                      subdomain=args.subdomain, region=args.region,
+                      bundle=args.bundle, lang=args.lang, timeout=args.timeout)
 
 
 def cmd_export(args) -> int:
@@ -349,7 +378,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bundle")
     p.add_argument("--lang", default="zh")
     p.add_argument("--debug", action="store_true")
+    p.add_argument("--lan", action="store_true",
+                   help="监听所有网卡，让同一局域网的其他电脑/手机能打开（等价 --host 0.0.0.0）")
+    p.add_argument("--ssl-cert",
+                   help="HTTPS 证书路径（与 --ssl-key 成对）；对方浏览器只有走 HTTPS 才放开实时取景和离线缓存")
+    p.add_argument("--ssl-key", help="HTTPS 私钥路径")
+    p.add_argument("--access-token",
+                   help="访问口令；给了之后所有页面和接口都要带口令（也可用环境变量 HEYAN_ACCESS_TOKEN）")
+    p.add_argument("--public", action="store_true",
+                   help="按公网暴露处理：开启限流与响应头收紧")
+    p.add_argument("--tunnel", action="store_true",
+                   help="内网穿透模式：只监听回环 + 强制口令鉴权 + 公网加固，隧道自己起（或用 heyan tunnel）")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("tunnel",
+                       help="内网穿透：同时起服务和 ngrok/cpolar，打印可直接分享的公网链接")
+    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--client", choices=["ngrok", "cpolar"],
+                   help="指定隧道客户端，默认自动探测装了哪个")
+    p.add_argument("--access-token", help="访问口令；不给就自动生成并打印出来")
+    p.add_argument("--subdomain", help="固定二级域名（要账号套餐支持）")
+    p.add_argument("--region", help="隧道节点区域，如 ngrok 的 ap、cpolar 的 cn")
+    p.add_argument("--bundle")
+    p.add_argument("--lang", default="zh")
+    p.add_argument("--timeout", type=float, default=120.0,
+                   help="等服务与隧道就绪的最长秒数")
+    p.set_defaults(func=cmd_tunnel)
 
     p = sub.add_parser("export", help="导出识别记录")
     p.add_argument("--fmt", default="json", choices=["json", "csv", "both"])

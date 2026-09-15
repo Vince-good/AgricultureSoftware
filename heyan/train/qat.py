@@ -6,6 +6,18 @@ Percentile / Entropy 三种定标法、per-channel、reduce_range、排除 HardS
 SE 门控，全都救不回来。原因是 SE 块与低秩瓶颈产生的中间激活动态范围极窄，
 8-bit 均匀网格把一整段特征压成同一个码字，事后定标无法补偿。
 
+激活定标默认走**百分位截断**而不是 MinMax，这是田间真实照片微调时补上的一课：
+MobileNetV3 的残差分支上会出现极少数幅值极大的离群激活（实测首层倒残差的范围
+宽到 223，而 99% 的值都落在 20 以内）。MinMax 把网格步长撑到 0.87，一整段有效
+特征被压成同一个码字，伪量化后 top1 从 0.809 直接掉到 0.342；同一份权重换成
+99.5 百分位定标，最宽范围收到 16，零训练就有 0.783。定标方法带来的差距比训练
+本身还大，所以 `QUANT_CALIBRATION_PERCENTILE` 是配置项而不是写死的常量。
+
+百分位取值对结果很敏感，而且敏感性会被采样噪声掩盖，所以定标必须扫着选而不是
+拍一个：99.5 在三档采样预算下都收敛到 0.783，99.9 在 0.69~0.75 之间乱跳，
+99.95 采样越多反而越差（0.112 -> 0.158 掉点）。采样预算同理——每层蓄水池从
+65536 提到 262144 才让 99.5 的估计稳定下来，再往上（1048576）已经没有增益。
+
 文档 3.2(2)(4) 承诺的是"量化后精度损失不超过 3%"。能兑现这个合同的只有一条路：
 把伪量化算子放进训练回路，先用真实田间校准图定标，再带伪量化微调若干轮，
 让权重自己适应 8-bit 网格。导出时把学到的 scale / zero_point 固化成 ONNX 的
@@ -25,34 +37,58 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..config import INPUT_SIZE
+from ..config import INPUT_SIZE, QUANT_CALIBRATION_PERCENTILE
 
 ACT_QMIN, ACT_QMAX = 0, 255      # 激活：非对称 uint8
 WT_QMIN, WT_QMAX = -128, 127     # 权重：对称 int8，per-channel
 OPSET = 17
+# 百分位定标时每层最多留多少个采样点。54 层 × 262144 × 4B ≈ 57MB，只在定标那
+# 几秒存在，freeze() 里立刻释放。这个预算是扫出来的下限：65536 时 99.5 分位的
+# 估计还带着 0.007 的抖动，262144 与 1048576 结果完全一致。
+RESERVOIR_SAMPLES = 262144
+PER_BATCH_SAMPLES = 32768
 
 
 class ActivationQuant(nn.Module):
-    """per-tensor 非对称 uint8 伪量化 + 滑动平均 MinMax 观测器。
+    """per-tensor 非对称 uint8 伪量化 + 可切换的激活观测器。
 
     定标阶段只观测不量化，冻结后只量化不观测，这样训练用的 scale 与
     写进 ONNX 的 scale 完全一致。
+
+    `percentile` 为空时是原来的滑动平均 MinMax；给了百分位（例如 99.9）就在
+    定标期蓄水池采样，冻结时取 [(100-p), p] 分位作为范围上下界（与 onnxruntime
+    的 PercentileCalibrator 同一套约定：p=99.9 表示上界切在 99.9 分位、下界切在
+    0.1 分位），把离群激活切在网格之外——它们本来就是极少数，切掉的损失远小于
+    把整张网格撑粗的损失。
     """
 
-    def __init__(self, name: str = "", averaging: float = 0.05) -> None:
+    def __init__(self, name: str = "", averaging: float = 0.05,
+                 percentile: Optional[float] = None,
+                 reservoir: int = RESERVOIR_SAMPLES) -> None:
         super().__init__()
         self.name = name
         self.averaging = averaging
+        self.percentile = percentile
+        self.reservoir = int(reservoir)
         self.observer_enabled = True
         self.fake_quant_enabled = False
+        self._pool: List[torch.Tensor] = []   # 只在定标期存在，不进 state_dict
         self.register_buffer("scale", torch.ones(1, dtype=torch.float32))
         self.register_buffer("zero_point", torch.zeros(1, dtype=torch.int32))
         self.register_buffer("min_val", torch.zeros(1, dtype=torch.float32))
         self.register_buffer("max_val", torch.zeros(1, dtype=torch.float32))
         self.register_buffer("seen", torch.zeros(1, dtype=torch.float32))
 
+    def reset(self) -> None:
+        """重新定标前清空蓄水样本，否则上一轮的分布会混进来。"""
+        self._pool = []
+        self.seen.zero_()
+
     @torch.no_grad()
     def observe(self, x: torch.Tensor) -> None:
+        if self.percentile is not None:
+            self._collect(x.detach())
+            return
         bmin = float(x.min().detach())
         bmax = float(x.max().detach())
         if float(self.seen.item()) == 0.0:
@@ -64,14 +100,47 @@ class ActivationQuant(nn.Module):
             self.min_val.mul_(1.0 - a).add_(a * bmin)
             self.max_val.mul_(1.0 - a).add_(a * bmax)
 
+    @torch.no_grad()
+    def _collect(self, x: torch.Tensor) -> None:
+        """蓄水池采样：每张图每层只留 PER_BATCH_SAMPLES 个点，够估分位数就行。
+
+        必须随机取下标，不能等距切片：激活张量按 NCHW 摊平，等距步长很容易正好
+        等于 H*W 的约数（实测首层倒残差 3211264//8192=392，而 112*112/392=32），
+        于是每张图每个通道都只采到同样那 32 个像素位置，分位数估计会带系统性偏差。
+        """
+        if sum(int(t.numel()) for t in self._pool) >= self.reservoir:
+            return
+        flat = x.reshape(-1)
+        if flat.numel() > PER_BATCH_SAMPLES:
+            idx = torch.randint(flat.numel(), (PER_BATCH_SAMPLES,))
+            flat = flat[idx]
+        self._pool.append(flat.to(dtype=torch.float32, copy=True))
+
     def freeze(self) -> None:
         """把观测到的范围换算成 uint8 仿射参数，零点必须落在 [0,255]。"""
+        if self.percentile is not None:
+            self._apply_percentile()
         mn = min(float(self.min_val.item()), 0.0)
         mx = max(float(self.max_val.item()), 0.0)
         scale = max(mx - mn, 1e-8) / float(ACT_QMAX - ACT_QMIN)
         zp = int(round(-mn / scale))
         self.scale.fill_(scale)
         self.zero_point.fill_(max(ACT_QMIN, min(ACT_QMAX, zp)))
+
+    @torch.no_grad()
+    def _apply_percentile(self) -> None:
+        if not self._pool:
+            return                      # 没定标过就沿用现有 min/max，不猜
+        cat = torch.cat([t.reshape(-1) for t in self._pool])
+        tail = (100.0 - float(self.percentile)) / 100.0   # 99.9 -> 上下各切 0.1%
+        lo = float(torch.quantile(cat, tail))
+        hi = float(torch.quantile(cat, 1.0 - tail))
+        if hi <= lo:                    # 整层几乎是常量，退回真实极值免得网格退化
+            lo, hi = float(cat.min()), float(cat.max())
+        self.min_val.fill_(lo)
+        self.max_val.fill_(hi)
+        self.seen.fill_(1.0)
+        self._pool = []                 # 定标结束立刻放掉这十几 MB
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.observer_enabled:
@@ -89,7 +158,8 @@ class QuantizedLayer(nn.Module):
     常量，这样 ONNX 图里的 Q/DQ 是可折叠成 int8 的静态参数。
     """
 
-    def __init__(self, inner: nn.Module, name: str = "", quant_input: bool = True) -> None:
+    def __init__(self, inner: nn.Module, name: str = "", quant_input: bool = True,
+                 percentile: Optional[float] = QUANT_CALIBRATION_PERCENTILE) -> None:
         super().__init__()
         if not isinstance(inner, (nn.Conv2d, nn.Linear)):
             raise TypeError(f"QuantizedLayer 只能包 Conv2d/Linear，收到 {type(inner)}")
@@ -97,7 +167,9 @@ class QuantizedLayer(nn.Module):
         self.name = name
         self.weight_dynamic = True
         self.bypass = False          # True 时整层退化成普通浮点算子（重导 FP32 参照物用）
-        self.act_in = ActivationQuant(f"{name}.in") if quant_input else None
+        self.percentile = percentile
+        self.act_in = (ActivationQuant(f"{name}.in", percentile=self.percentile)
+                       if quant_input else None)
         self.register_buffer("w_scale", torch.ones(inner.weight.shape[0], dtype=torch.float32))
         self.register_buffer("w_zp", torch.zeros(inner.weight.shape[0], dtype=torch.int32))
         self._update_weight_scale(inner.weight.detach())
@@ -143,6 +215,8 @@ def set_mode(model: nn.Module, observer: bool, fake_quant: bool) -> int:
     for m in iter_quantizers(model):
         m.observer_enabled = observer
         m.fake_quant_enabled = fake_quant
+        if observer:
+            m.reset()      # 重新进入定标态就把上一轮的蓄水样本清掉
         n += 1
     for m in model.modules():
         if isinstance(m, QuantizedLayer):
@@ -156,7 +230,8 @@ def freeze_scales(model: nn.Module) -> None:
         m.freeze()
 
 
-def prepare(model: nn.Module, quant_input: bool = True) -> int:
+def prepare(model: nn.Module, quant_input: bool = True,
+            percentile: Optional[float] = QUANT_CALIBRATION_PERCENTILE) -> int:
     """就地把所有 Conv2d / Linear 换成 QuantizedLayer，返回替换数量。"""
     count = 0
 
@@ -165,7 +240,8 @@ def prepare(model: nn.Module, quant_input: bool = True) -> int:
         for name, child in list(mod.named_children()):
             full = f"{prefix}.{name}" if prefix else name
             if isinstance(child, (nn.Conv2d, nn.Linear)):
-                setattr(mod, name, QuantizedLayer(child, full, quant_input))
+                setattr(mod, name, QuantizedLayer(child, full, quant_input,
+                                                  percentile=percentile))
                 count += 1
             else:
                 walk(child, full)
@@ -175,9 +251,17 @@ def prepare(model: nn.Module, quant_input: bool = True) -> int:
 
 
 @torch.no_grad()
-def calibrate(model: nn.Module, arrays: Sequence[np.ndarray], batch_size: int = 16) -> int:
-    """用真实田间图片定标激活范围。只观测、不量化、不反传。"""
+def calibrate(model: nn.Module, arrays: Sequence[np.ndarray], batch_size: int = 16,
+              percentile: Optional[float] = None) -> int:
+    """用真实田间图片定标激活范围。只观测、不量化、不反传。
+
+    `percentile` 只在需要临时改定标方式时传；正常路径由 `prepare()` 决定，
+    留空表示沿用每层观测器自己的设置。
+    """
     model.eval()
+    if percentile is not None:
+        for m in iter_quantizers(model):
+            m.percentile = percentile
     set_mode(model, observer=True, fake_quant=False)
     used = 0
     for i in range(0, len(arrays), batch_size):
@@ -197,6 +281,8 @@ def quantizer_table(model: nn.Module) -> Dict[str, Dict[str, Any]]:
             "zero_point": int(m.zero_point.item()),
             "min": round(float(m.min_val.item()), 6),
             "max": round(float(m.max_val.item()), 6),
+            "observer": (f"percentile_{m.percentile}" if m.percentile is not None
+                         else "minmax_ema"),
         }
     return out
 

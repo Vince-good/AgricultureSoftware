@@ -76,6 +76,23 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "teochew": "葉囝放佇框中央，走近滴拍清楚",
         "en": "Center the leaf in the frame and move close",
     },
+    # 故意不用 sys_ 前缀：这句话只在屏上显示、从不播报，而 sys_ 键会被
+    # heyan.tts.phrases 收进语音包清单，加一条就会让已发布 bundle 的语音包失配。
+    "camera_insecure_hint": {
+        "zh": "浏览器限制：用局域网 http 地址打开时不能实时取景，点快门会调用系统相机",
+        "yue": "瀏覽器限制：用區域網絡 http 地址開嗰陣唔可以即時取景，撳快門會叫系統鏡頭",
+        "hak": "瀏覽器限制：用區域網絡 http 地址開個時用毋到即時取景，按快門會調系統鏡頭",
+        "teochew": "瀏覽器限制：用區域網絡 http 地址開的時陣用袂起即時取景，按快門會調系統鏡頭",
+        "en": "Browser policy: the live viewfinder is off on plain-HTTP LAN addresses. "
+              "The shutter opens the system camera instead.",
+    },
+    "auth_expired": {
+        "zh": "访问口令已失效，请重新打开主机给你的链接",
+        "yue": "訪問口令失效咗，請重新開主機俾你嘅連結",
+        "hak": "訪問口令失效矣，請重新開主機分你的連結",
+        "teochew": "訪問口令失效去，請重新開主機分你的連結",
+        "en": "Access pass expired. Please reopen the link from the host.",
+    },
 
     # ---- 三步流程：识别 ----
     "analyzing": {
@@ -295,6 +312,9 @@ STRINGS: Dict[str, Dict[str, str]] = {
     },
     "crop_vegetable": {
         "zh": "蔬菜", "yue": "蔬菜", "hak": "蔬菜", "teochew": "蔬菜", "en": "Vegetable",
+    },
+    "crop_maize": {
+        "zh": "玉米", "yue": "粟米", "hak": "苞粟", "teochew": "苞粟", "en": "Maize",
     },
     "crop_none": {
         "zh": "其他", "yue": "其他", "hak": "其他", "teochew": "其他", "en": "Other",

@@ -125,7 +125,10 @@
   }
 
   async function api(path, opts = {}) {
-    const res = await fetch(path, opts);
+    // ngrok 免费档会给"看起来像浏览器导航"的请求插一张警告页，把 JSON 变成 HTML；
+    // 带上这个头就跳过。本机/局域网访问时它是个无人理会的自定义头，没有副作用。
+    const headers = Object.assign({ 'ngrok-skip-browser-warning': '1' }, opts.headers || {});
+    const res = await fetch(path, Object.assign({}, opts, { headers }));
     const ct = res.headers.get('content-type') || '';
     const body = ct.includes('application/json') ? await res.json() : await res.text();
     if (!res.ok) {
@@ -133,6 +136,12 @@
       err.status = res.status;
       err.code = body && body.code;
       err.payload = body;
+      if (res.status === 401 || res.status === 403) {
+        // 口令过期或链接不对：回闸门页重输一次，比在界面上抛一句错误更有用。
+        // 闸门页自身不调接口，所以不会形成重定向循环。
+        toast(t('auth_expired'), 'warn');
+        setTimeout(() => { window.location.href = '/'; }, 1500);
+      }
       throw err;
     }
     return body;
@@ -229,6 +238,12 @@
   // ---------------------------------------------------------------- 相机
   async function startCam() {
     const md = navigator.mediaDevices;
+    // 浏览器只在安全上下文（https 或 localhost）里放开 getUserMedia。别人用
+    // http://<局域网IP>:8080 打开时 md 必然是 undefined，这时报“没有摄像头”
+    // 会把人往错的方向引 —— 真正的原因是访问方式，得说清楚并给出可用路径。
+    // 用 === false 而不是取反：老浏览器没有这个属性时会得到 undefined，
+    // 那种情况该走下面的能力检测，不该被误判成“不安全上下文”。
+    if (window.isSecureContext === false) return camFallback('camera_insecure_hint');
     if (!md || !md.getUserMedia) return camFallback('sys_no_camera');
     try {
       stopStream();
@@ -479,8 +494,13 @@
   // ---------------------------------------------------------------- 记录
   function renderFilters() {
     const counts = { all: S.boot.records_total || 0 };
+    // 作物筛选项跟着模型包的类别清单走，新增作物不必再来前端改一遍硬编码列表
+    const crops = [];
+    (S.boot.classes || []).forEach((c) => {
+      if (c.crop && c.crop !== 'none' && !crops.includes(c.crop)) crops.push(c.crop);
+    });
     const defs = [{ k: 'all', label: t('history_filter_all') }]
-      .concat(['rice', 'peanut', 'vegetable'].map((c) => ({ k: 'crop:' + c, label: cropName(c) })))
+      .concat(crops.map((c) => ({ k: 'crop:' + c, label: cropName(c) })))
       .concat([{ k: 'retake', label: t('stress_invalid') }]);
     el['rec-filters'].innerHTML = defs.map((d) => {
       const on = (S.recFilter.key || 'all') === d.k;

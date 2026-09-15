@@ -19,6 +19,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from ..config import PATHS, UI_MIN_FONT_PX, UI_TOUCH_TARGET_PX
 from ..i18n import DIALECT_REVIEW_NEEDED, coverage, table
+from . import guard
 from .state import AppState, EngineUnavailable
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -154,8 +155,13 @@ def _safe_export_path(name: str) -> Path:
 def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
                host: str = "127.0.0.1", port: int = 8765,
                backend: Optional[str] = None, threads: int = 1,
-               warm: bool = True) -> Flask:
-    """创建 Flask 应用。`bundle` 为空时自动取 artifacts/bundles 下最新的模型包。"""
+               warm: bool = True, access_token: Optional[str] = None,
+               public: bool = False) -> Flask:
+    """创建 Flask 应用。`bundle` 为空时自动取 artifacts/bundles 下最新的模型包。
+
+    `access_token` 非空就开启口令鉴权；`public=True` 表示这台服务会被
+    内网穿透挂到公网，额外打开限流与响应头收紧（见 heyan/server/guard.py）。
+    """
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
     app.config["JSON_AS_ASCII"] = False
@@ -164,6 +170,7 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
 
     state = AppState(bundle=bundle, language=language, backend=backend, threads=threads)
     app.extensions["heyan"] = state
+    guard.install(app, token=access_token, public=public)
 
     # ---------------- 静态资源 ----------------
     @app.get("/")
@@ -222,18 +229,25 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
             "settings": state.settings,
             "profile": state.profile,
             "records_total": state.record_count(),
-            "paths": {"records_db": str(PATHS.db), "exports": str(PATHS.exports),
-                      "outbox": str(PATHS.outbox)},
             "server_time": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        if not app.config.get("HEYAN_PUBLIC"):
+            # 公网模式下不交出去：本机绝对路径对识别没用，只帮攻击者摸清目录结构
+            payload["paths"] = {"records_db": str(PATHS.db), "exports": str(PATHS.exports),
+                                "outbox": str(PATHS.outbox)}
         return jsonify(payload)
 
     @app.get("/api/health")
     def api_health():
+        bundle_path = str(state.bundle_path) if state.bundle_path else None
+        if app.config.get("HEYAN_PUBLIC") and bundle_path:
+            bundle_path = Path(bundle_path).name  # 只留包名，不留整条路径
         return jsonify({
             "ok": True, "engine": state.engine_status()["available"],
-            "bundle": str(state.bundle_path) if state.bundle_path else None,
-            "records": state.record_count(), "uptime_s": round(time.time() - state.started_at, 1),
+            "bundle": bundle_path,
+            "records": state.record_count(),
+            "uptime_s": round(time.time() - state.started_at, 1),
+            "guard": guard.status(app),
         })
 
     # ---------------- 识别 ----------------
@@ -534,9 +548,12 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
     @app.errorhandler(Exception)
     def _on_error(exc: Exception):
         app.logger.exception("unhandled error")
-        return jsonify({"ok": False, "code": "internal_error",
-                        "message": "识别失败，请再试一次",
-                        "detail": f"{type(exc).__name__}: {exc}"}), 500
+        body: Dict[str, Any] = {"ok": False, "code": "internal_error",
+                                "message": "识别失败，请再试一次"}
+        if not app.config.get("HEYAN_PUBLIC"):
+            # 公网上把异常原文抛出去等于送堆栈信息；本机调试时它仍然有用
+            body["detail"] = f"{type(exc).__name__}: {exc}"
+        return jsonify(body), 500
 
     if warm:
         state.warm()
@@ -587,17 +604,127 @@ def __version() -> str:
 
 
 def run_server(app: Flask, host: str = "127.0.0.1", port: int = 8765,
-               debug: bool = False) -> None:
-    """启动服务。默认只监听回环：田间设备上不该对外开端口。"""
+               debug: bool = False, ssl_cert: Optional[str] = None,
+               ssl_key: Optional[str] = None, access_token: Optional[str] = None,
+               public: bool = False) -> None:
+    """启动服务。
+
+    默认只监听回环：田间设备上不该随手对外开端口。要让同局域网的
+    其他电脑/手机打开，显式加 `--lan`（绑 0.0.0.0）；再配上
+    `--ssl-cert/--ssl-key` 走 HTTPS，对方浏览器才会放开实时取景和
+    Service Worker（这两样只在安全上下文里可用，HTTP 局域网地址下拿不到）。
+
+    要挂到公网（内网穿透）用 `heyan tunnel`，它只监听回环、强制口令鉴权，
+    并把隧道客户端一起拉起来。`access_token` 只在 create_app 时生效，
+    这里拿到它只是为了把话说清楚。
+    """
     state: AppState = app.extensions.get("heyan")
     engine = state.engine_status()
+    ssl_context = build_ssl_context(ssl_cert, ssl_key)
+    scheme = "https" if ssl_context else "http"
     port = _bind_port(app, host, port)
-    print(f"[heyan] 界面地址 http://{host}:{port}")
+    for url in describe_endpoints(host, port, scheme):
+        print(f"[heyan] 界面地址 {url}")
+    if is_public_bind(host):
+        print("[heyan] 已监听所有网卡：连同一个 WiFi/路由器的设备可以直接打开上面的地址")
+        if not access_token:
+            print("[heyan] 提醒：没有口令，局域网里任何人都能看/删本机记录；"
+                  "不熟的网络请加 --access-token")
+        print("[heyan] 对方打不开时，先在这台机器上用管理员 PowerShell 放行入站端口：")
+        print(f'          netsh advfirewall firewall add rule name="heyan-web-{port}"'
+              f" dir=in action=allow protocol=TCP localport={port}")
+        if not ssl_context:
+            print("[heyan] 注意：HTTP 方式下浏览器禁用页内实时取景与离线缓存，"
+                  "快门会自动改用系统相机/相册，功能仍可用；"
+                  "要完整体验请用 tools/make_dev_cert.py 生成证书后加 --ssl-cert/--ssl-key")
+    for line in guard.banner_lines(access_token, public):
+        print(line)
     if engine["available"]:
         print(f"[heyan] 模型包 {engine['bundle_dir']}")
     else:
         print("[heyan] 警告：没有找到模型包，界面会提示先运行 `heyan build`")
-    app.run(host=host, port=int(port), debug=bool(debug), threaded=True, use_reloader=False)
+    app.run(host=host, port=int(port), debug=bool(debug), threaded=True,
+            use_reloader=False, ssl_context=ssl_context)
+
+
+# ------------------------------------------------------- 局域网访问辅助
+_PUBLIC_BIND = ("0.0.0.0", "::", "", "all")
+
+
+def is_public_bind(host: str) -> bool:
+    """判断是否监听了所有网卡（即别人能连进来）。"""
+    return str(host).strip() in _PUBLIC_BIND
+
+
+def discover_lan_ipv4() -> list:
+    """枚举本机局域网 IPv4，用来打印别人能真正打开的地址。
+
+    两条路都走：先用一次 UDP connect 让内核选出默认路由的出口网卡
+    （不发包，最可靠，也不会把虚拟机网卡排到前面），再用 getaddrinfo
+    补齐其余网卡。都失败就返回空列表，由调用方降级提示。
+    """
+    import socket
+
+    found: list = []
+
+    def _add(ip: str) -> None:
+        ip = (ip or "").split("%")[0]
+        if not ip or ip in found:
+            return
+        if ip.startswith("127.") or ip.startswith("169.254."):
+            return  # 回环和自动私有地址，别人连不上
+        found.append(ip)
+
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("8.8.8.8", 53))
+            _add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            _add(info[4][0])
+    except OSError:
+        pass
+    return found
+
+
+def describe_endpoints(host: str, port: int, scheme: str = "http") -> list:
+    """生成要打印给用户的访问地址。
+
+    绑 0.0.0.0 时打印 `http://0.0.0.0:8080` 没有意义（那不是个能点开的地址），
+    必须换成本机真实 IP；只绑回环时就只给回环，不误导。
+    """
+    port = int(port)
+    if not is_public_bind(host):
+        return [f"{scheme}://{host}:{port}"]
+    ips = discover_lan_ipv4()
+    urls = [f"{scheme}://127.0.0.1:{port}"]
+    urls += [f"{scheme}://{ip}:{port}" for ip in ips]
+    if not ips:
+        urls.append("（没探测到局域网 IP：确认已连 WiFi/网线，或用 ipconfig 自己看一眼）")
+    return urls
+
+
+def build_ssl_context(ssl_cert: Optional[str], ssl_key: Optional[str]):
+    """组装 Werkzeug 要的 ssl_context；证书私钥必须成对且文件存在。
+
+    缺一个就抛 ValueError：静默退回 HTTP 会让人以为加密生效了，
+    而现场唯一能看出来的线索是相机突然不能用。
+    """
+    if not ssl_cert and not ssl_key:
+        return None
+    if not (ssl_cert and ssl_key):
+        raise ValueError("--ssl-cert 和 --ssl-key 必须同时给出")
+    cert, key = Path(ssl_cert), Path(ssl_key)
+    for label, path in (("证书", cert), ("私钥", key)):
+        if not path.is_file():
+            raise ValueError(f"{label}文件不存在：{path}")
+    return (str(cert), str(key))
 
 
 def _bind_port(app: Flask, host: str, port: int, tries: int = 10) -> int:

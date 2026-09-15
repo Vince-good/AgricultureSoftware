@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "note": "文件夹名/标注名 -> taxonomy class_id 的别名映射。田间采集来的照片目录名往往不是 class_id（例如团队按 Maize_RustDisease 建目录，而体系里的 id 是 maize_rust），靠人脑记住对应关系迟早出错，所以把映射固化成一份可审阅的数据文件。新增作物或新采集批次时只改这里，不用改代码。",
+  "matching": "解析前先归一化：转小写、去掉首尾空白、把 _ - . 空格 / \\ 等分隔符统一抹平、去掉间隔号·。因此 Maize_RustDisease、maize rust disease、MaizeRustDisease 都会命中同一条别名。",
+  "aliases": {
+    "maize_healthy": [
+      "Maize_healthy",
+      "玉米健康",
+      "健康玉米",
+      "corn_healthy",
+      "maize_normal"
+    ],
+    "maize_rust": [
+      "Maize_RustDisease",
+      "玉米锈病",
+      "Maize_CommonRust",
+      "corn_rust",
+      "maize_leaf_rust"
+    ],
+    "maize_northern_leaf_blight": [
+      "Maize_spotDisease",
+      "玉米大斑病",
+      "Maize_NorthernLeafBlight",
+      "corn_northern_leaf_blight",
+      "maize_leaf_blight"
+    ]
+  },
+  "provenance": {
+    "dateBase_Maize": {
+      "Maize_healthy": "maize_healthy",
+      "Maize_RustDisease": "maize_rust",
+      "Maize_spotDisease": "maize_northern_leaf_blight",
+      "note": "2026-09 田间采集批次。Maize_spotDisease 指的是玉米大斑病（Exserohilum turcicum 造成的长梭形灰褐斑），不是泛指叶斑病，采集时已与团队确认。"
+    }
+  }
+}
