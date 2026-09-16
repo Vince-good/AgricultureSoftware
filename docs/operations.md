@@ -209,6 +209,30 @@ cpolar authtoken <你的TOKEN>
 | 页面开了但摄像头用不了 | 隧道给的是 HTTPS，本该可用；若走局域网 http 见 3.1 |
 | 对方打开先看到一张 ngrok 警告页 | 免费档行为，点 Visit Site 即可，前端已带跳过头 |
 
+### 3.3 云端部署（本机可以关机）
+
+3.1 和 3.2 都有一个共同前提：**这台机器一直开着**。窗口一关、电脑一睡、
+家里一断网，链接立刻失效。比赛和正式交付靠不住这个前提，所以还有第三条路：
+把整套软件装进容器跑在云端。
+
+```powershell
+python tools/make_cloud_bundle.py     # 生成 artifacts/cloud 部署目录，约 59MB
+```
+
+部署目录里是代码 + 一个模型包 + `Dockerfile` + HF Spaces 认的 README 头 +
+git-lfs 规则 + 一份"不忽略模型"的 `.gitignore`。按白名单拷贝，
+`artifacts/records/heyan.db` 这类本机数据不会被带上公网。
+
+容器里的启动入口是 `python -m heyan.server.cloud`，和本机 `serve` 的区别在于：
+绑 `0.0.0.0`、端口认平台注入的 `$PORT`、端口被占**直接退出而不顺延**
+（平台只健康检查它分配的那一个端口，悄悄换端口等于"日志说起来了、链接永远
+打不开"）、一律按公网加固、启动即预热模型。
+
+推到 Hugging Face Spaces（免费、不要信用卡、自带 HTTPS）就能拿到一条
+`https://<用户名>-<空间名>.hf.space` 的长期链接。**从零到公网链接的完整步骤、
+模型文件的三种上传方式、免费档的休眠与无持久存储限制、故障排查表，
+见 `deploy-cloud.md`。**
+
 ## 4. 模型包分发（SD 卡 / U 盘部署）
 
 打包并生成校验单：

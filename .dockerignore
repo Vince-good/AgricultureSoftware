@@ -1,0 +1,32 @@
+# 版本库、缓存、虚拟环境
+.git
+.gitignore
+.gitattributes
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+*.egg-info/
+.venv/
+venv/
+node_modules/
+
+# 云端只跑推理服务：测试、文档、训练数据都不进镜像
+tests/
+docs/
+dateBase_Maize/
+data/
+runs/
+build/
+dist/
+*.docx
+
+# 模型包必须留在镜像里，artifacts 下其余的一律不要。
+# 尤其 artifacts/records/heyan.db：那是本机调试攒下的识别记录，打进镜像
+# 等于把自己的数据公开给每一个点开链接的人。artifacts/data 里的演示数据集
+# 和 _pytest_home 同理——几十 MB 的无用负载。
+#
+# 写成 artifacts/* 而不是 artifacts，是为了下一行的 ! 例外能生效：
+# 父目录被整体排除时，Docker 不允许再把子路径捞回来。
+artifacts/*
+!artifacts/bundles

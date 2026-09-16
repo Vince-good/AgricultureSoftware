@@ -124,6 +124,20 @@ python -m heyan.cli tunnel --port 8080   # 等价的手敲命令
 127.0.0.1、必须有访问口令（不给就自动生成）、开限流与公网加固头。
 细节和免费档的如实限制见 `docs/operations.md` 的 3.2 节。演示完就关，别长期挂着。
 
+**云端**（本机可以关机，链接长期有效）：
+
+```powershell
+python tools/make_cloud_bundle.py     # 生成 artifacts/cloud 部署目录
+```
+
+穿透的前提是"你这台机器一直开着"，比赛和交付都靠不住。云端把代码和模型包
+一起装进容器跑在服务商那边，和本机再无关系。上面这条命令会生成一份专门给云的
+目录（代码 + 一个模型包 + `Dockerfile` + HF Spaces 要的 README 头 + git-lfs 规则），
+按白名单拷贝，本机攒下的识别记录不会被带上去。推到 Hugging Face Spaces
+就能拿到一条 `https://<用户名>-<空间名>.hf.space` 的公网链接。
+从零到链接的完整步骤、免费档的休眠与无持久存储限制、故障排查，
+都在 `docs/deploy-cloud.md`。
+
 ## 命令一览
 
 | 命令 | 作用 |
@@ -202,20 +216,22 @@ heyan/
   eval/              指标、预算基准、SUS+TAM 量表
   server/            Flask 服务与前端（index.html / app.js / style.css / sw.js）
   assets/            taxonomy.json、advisory.json、label_aliases.json
-tools/               演示数据集、田间样本导入与微调、应用图标、模型包打包
-tests/               契约测试（硬指标、接口、存储导出、语音）
-artifacts/           构建产物：模型包、数据集、记录库、导出、语音包
-docs/                需求追溯表与运维手册
+tools/               演示数据集、田间样本导入与微调、应用图标、模型包与云端部署目录打包
+tests/               契约测试（硬指标、接口、存储导出、语音、绝对路径守卫、云端部署）
+artifacts/           构建产物：模型包、数据集、记录库、导出、语音包、云端部署目录
+docs/                需求追溯表、运维手册、云端部署手册
 ```
 
 ## 测试
 
 ```powershell
-python -m pytest tests -q
+python -m pytest -q
 ```
 
-32 项，跑的是仓库里真实的模型包和语音包（通过 junction 借进测试沙箱，不污染 `artifacts/`）。
-`tests/test_core_contract.py` 专门守文档里那几条硬指标，构建产物一旦越线就红。
+124 项，跑的是仓库里真实的模型包和语音包（通过 junction 借进测试沙箱，不污染 `artifacts/`）。
+`tests/test_core_contract.py` 专门守文档里那几条硬指标，构建产物一旦越线就红；
+`tests/test_no_absolute_paths.py` 守住"整个目录拷到任何机器任何盘符都能跑"；
+`tests/test_cloud_deploy.py` 守住云端那条路的端口、依赖与打包口径。
 
 ## 已知边界
 
