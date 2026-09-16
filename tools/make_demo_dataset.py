@@ -27,7 +27,7 @@
 ----
     python tools/make_demo_dataset.py                 # 默认 30 张/类 → artifacts/data/demo_dataset
     python tools/make_demo_dataset.py --per-class 60 --seed 7
-    python tools/make_demo_dataset.py --out D:/data/demo --labels-csv
+    python tools/make_demo_dataset.py --out ./demo_out --labels-csv
 """
 
 from __future__ import annotations

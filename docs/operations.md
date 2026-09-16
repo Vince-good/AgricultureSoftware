@@ -21,6 +21,13 @@
 所有运行期产物都在一个根目录下，默认 `./artifacts`，可用环境变量 `HEYAN_HOME` 整体重定向
 （这是 SD 卡 / U 盘部署的关键开关，见 `heyan/config.py::Paths`）。
 
+代码里没有任何写死的盘符路径：所有位置都由「项目根目录 + `HEYAN_HOME`」推导。本文命令中的
+`<项目根目录>`、`<照片目录>`、`<U盘盘符>` 都是占位符，按自己的机器替换即可。
+
+这条约束由 `tests/test_no_absolute_paths.py` 守着：它会扫描仓库内所有文本文件，一旦出现
+写死的盘符路径（连注释里的示例也算）就让测试变红。新增脚本时若确实需要写绝对路径，
+请把该文件加进测试里的 `DRIVE_PATH_ALLOWLIST` 并写明理由。
+
 ```text
 <HEYAN_HOME>/
   bundles/     模型包（识别所需的一切：onnx、labels、advisory、语音、基准报告）
@@ -59,7 +66,7 @@ python -m heyan.cli serve --port 8080
 
 ```text
 [heyan] 界面地址 http://127.0.0.1:8080
-[heyan] 模型包 E:\mywork\AgricultureSoftware\artifacts\bundles\heyan-mnv3s-int8-v1.1.0
+[heyan] 模型包 <项目根目录>\artifacts\bundles\heyan-mnv3s-int8-v1.1.0
  * Running on http://127.0.0.1:8080
 Press CTRL+C to quit
 ```
@@ -215,21 +222,21 @@ python tools\package_bundle.py
 拷到目标设备后先校验再解压：
 
 ```powershell
-python tools\package_bundle.py --verify D:\heyan-mnv3s-int8-v1.1.0.zip
+python tools\package_bundle.py --verify .\heyan-mnv3s-int8-v1.1.0.zip
 ```
 
 校验通过再解压到目标设备的 `<HEYAN_HOME>/bundles/` 下，然后设 `HEYAN_HOME` 指向该目录即可，
 例如把整套跑在 U 盘上：
 
 ```powershell
-$env:HEYAN_HOME = "E:\heyan"
+$env:HEYAN_HOME = "<U盘盘符>:\heyan"
 python -m heyan.cli serve --port 8080
 ```
 
 按设备实际情况复判预算（文档要求 RAM ≤ 2GB、成本 ≤ 300 元）：
 
 ```powershell
-python -m heyan.cli benchmark --device-ram-mb 2048 --device-cost-cny 300 --images D:\field\*.jpg
+python -m heyan.cli benchmark --device-ram-mb 2048 --device-cost-cny 300 --images "<照片目录>\*.jpg"
 ```
 
 ## 5. 用真实田间照片重训
@@ -280,7 +287,7 @@ IMG_0002.jpg,peanut_leaf_spot
 统一标 `unusable`——这是兜底类，宁可让它多学一点，也不要硬塞进病害类。
 
 ```powershell
-python -m heyan.cli ingest --labels-csv D:\field\labels.csv --image-root D:\field\photos --min-per-class 10
+python -m heyan.cli ingest --labels-csv "<照片目录>\labels.csv" --image-root "<照片目录>\photos" --min-per-class 10
 python -m heyan.cli build --data-dir artifacts\data\field --labels-csv artifacts\data\field\labels.csv --image-root artifacts\data\field\images --voice-langs zh,en --pack-zip
 ```
 
@@ -390,7 +397,7 @@ python -m heyan.cli outbox describe     # 三个适配器各自要什么、给�
 python -m heyan.cli outbox schemas      # 写出对接 JSON Schema
 python -m heyan.cli outbox status       # 待发条目
 python -m heyan.cli outbox dispatch --names insurance,subsidy
-python -m heyan.cli outbox flush --target E:\   # 落到 U 盘，人工送达
+python -m heyan.cli outbox flush --target "<U盘盘符>:\"   # 落到 U 盘，人工送达
 ```
 
 界面上对应 `GET /api/adapters` 与 `POST /api/adapters/dispatch`。

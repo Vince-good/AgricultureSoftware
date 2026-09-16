@@ -11,8 +11,8 @@
 
 为什么不直接 pip install cryptography：
   项目硬约束是全离线，现场机器常常连不上 PyPI。这里先试 cryptography，
-  没有就找 openssl —— Windows 上装过 Git 就自带（形如
-  E:\\git_soft\\Git\\usr\\bin\\openssl.exe），于是一条依赖都不用装。
+  没有就找 openssl —— Windows 上装过 Git 就自带（在 Git 安装目录下的
+  usr\\bin\\openssl.exe 或 mingw64\\bin\\openssl.exe），于是一条依赖都不用装。
 
 用法：
     python tools/make_dev_cert.py
