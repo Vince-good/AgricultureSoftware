@@ -156,11 +156,14 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
                host: str = "127.0.0.1", port: int = 8765,
                backend: Optional[str] = None, threads: int = 1,
                warm: bool = True, access_token: Optional[str] = None,
-               public: bool = False) -> Flask:
+               public: bool = False,
+               limits: Optional[Dict[str, Tuple[int, float]]] = None) -> Flask:
     """创建 Flask 应用。`bundle` 为空时自动取 artifacts/bundles 下最新的模型包。
 
     `access_token` 非空就开启口令鉴权；`public=True` 表示这台服务会被
     内网穿透挂到公网，额外打开限流与响应头收紧（见 heyan/server/guard.py）。
+    `limits` 覆盖默认限流额度（形如 {"recognize": (12, 60.0)}）：云端部署时
+    评委可能都在会场同一个出口 IP 后面，按本机口径限流会把人挡在门外。
     """
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
@@ -170,7 +173,7 @@ def create_app(bundle: Optional[Path | str] = None, language: str = "zh",
 
     state = AppState(bundle=bundle, language=language, backend=backend, threads=threads)
     app.extensions["heyan"] = state
-    guard.install(app, token=access_token, public=public)
+    guard.install(app, token=access_token, public=public, limits=limits)
 
     # ---------------- 静态资源 ----------------
     @app.get("/")

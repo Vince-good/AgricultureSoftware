@@ -1,0 +1,19 @@
+# 云端 / 容器部署的最小依赖：只跑推理与 Web 服务。
+#
+# 不含 torch / torchvision —— 那是训练和导出 ONNX 才需要的。识别路径走
+# onnxruntime，缺了还能自动退回 heyan/core/backends/numpy_graph.py 的纯 NumPy
+# 解释器（能跑但慢）。少装 torch 能省下 2GB 以上的镜像体积，HF Spaces 上
+# 构建时间差好几分钟。
+#
+# 也不含 flask-cors：requirements.txt 里虽然声明了，但全仓库没有任何地方
+# import 它（同源部署用不上跨域），云端就不带了。
+#
+# 版本用下限而不是钉死，口径与 requirements.txt 一致：换 Python 小版本时
+# pip 自己能解出有 wheel 的组合。要严格可复现就改用 requirements.lock.txt
+# （注意那份锁是 Python 3.14 / win32 口径，且带 torch，不适合直接用在 Linux 镜像里）。
+numpy>=1.24
+pillow>=9.0
+flask>=3.0
+onnxruntime>=1.17
+# 生产级 WSGI 服务器。跨平台，所以本机也能用同一条命令验证云端启动逻辑。
+waitress>=3.0

@@ -59,6 +59,11 @@ class RateLimiter:
         self._hits: Dict[str, deque] = {}
         self._lock = threading.Lock()
 
+    @property
+    def limits(self) -> Dict[str, Tuple[int, float]]:
+        """当前生效的额度。启动横幅要如实报数，不能自己另算一份。"""
+        return dict(self._limits)
+
     def allow(self, source: str, category: str = "default") -> bool:
         quota, window = self._limits.get(category) or self._limits["default"]
         now = time.monotonic()
