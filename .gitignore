@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+# pytest 崩溃时留下的临时目录，git 读不动还会报警告
+pytest-cache-files-*/
 *.egg-info/
 build/
 dist/
@@ -13,10 +15,11 @@ artifacts/
 *.pt
 *.pth
 *.onnx
-!heyan/assets/*.onnx
 *.wav
-!heyan/assets/voicepacks/**/*.wav
 *.db
 *.sqlite3
 .DS_Store
 Thumbs.db
+# 模型包和语音包一律不进 git：它们通过 artifacts/dist 的 zip + sha256 分发，
+# 换机器用 tools/make_portable_copy.ps1 整体搬运（训练有随机性，重新构建拿不到
+# 逐字节相同的产物，所以只能拷，不能靠 clone 重建）。
